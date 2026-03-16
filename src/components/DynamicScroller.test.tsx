@@ -6,6 +6,7 @@ import type {
   DynamicScrollerDefaultSlotProps,
   DynamicScrollerExpose,
   DynamicScrollerRefreshSlotProps,
+  ScrollPositionPayload,
 } from '../types/recycle-scroller'
 import DynamicScroller from './dynamic-scroller'
 import DynamicScrollerItem from './dynamic-scroller-item'
@@ -95,6 +96,21 @@ function renderDynamicSlot({ item, index, active }: DynamicScrollerDefaultSlotPr
         ]),
     },
   )
+}
+
+function getScrollPositionPayloads(
+  wrapper: ReturnType<typeof mount>,
+): ScrollPositionPayload[] {
+  return (wrapper.emitted('scrollPosition') ?? []).map(
+    (event: unknown[]) => event[0] as ScrollPositionPayload,
+  )
+}
+
+function getLastScrollPositionPayload(
+  wrapper: ReturnType<typeof mount>,
+): ScrollPositionPayload | undefined {
+  const payloads = getScrollPositionPayloads(wrapper)
+  return payloads[payloads.length - 1]
 }
 
 function dispatchTouchEvent(
@@ -229,6 +245,43 @@ describe('DynamicScroller', () => {
       'story-1|1',
       'story-2|2',
     ])
+  })
+
+  it('emits scrollPosition for estimated windows and measurement-driven boundary changes', async () => {
+    const items = createStories(4)
+    const wrapper = trackWrapper(mount(DynamicScroller, {
+      props: {
+        items,
+        minItemSize: 50,
+        buffer: 0,
+      },
+      slots: {
+        default: renderDynamicSlot,
+      },
+    }))
+
+    await syncDynamicScroller(wrapper, {
+      clientHeight: 100,
+      scrollTop: 0,
+    })
+
+    const initialPayloads = getScrollPositionPayloads(wrapper)
+    expect(getLastScrollPositionPayload(wrapper)).toEqual({
+      first: { index: 0, item: items[0] },
+      last: { index: 1, item: items[1] },
+    })
+
+    const itemElements = wrapper.findAll('.vue-dynamic-scroller-item')
+    setElementMetrics(itemElements[0].element as HTMLElement, { offsetHeight: 140 })
+    ResizeObserverMock.triggerAll()
+    await flushAnimationFrame()
+
+    const nextPayloads = getScrollPositionPayloads(wrapper)
+    expect(nextPayloads).toHaveLength(initialPayloads.length + 1)
+    expect(getLastScrollPositionPayload(wrapper)).toEqual({
+      first: { index: 0, item: items[0] },
+      last: { index: 0, item: items[0] },
+    })
   })
 
   it('rebuilds layout state after in-place logical reordering', async () => {

@@ -41,6 +41,7 @@ import {
   DynamicScroller,
   DynamicScrollerItem,
   RecycleScroller,
+  type ScrollPositionPayload,
 } from 'vue3-virtual-scroller'
 import 'vue3-virtual-scroller/style.css'
 
@@ -54,6 +55,9 @@ export default defineComponent({
     const refreshItems = async () => {
       await new Promise((resolve) => setTimeout(resolve, 300))
     }
+    const handleScrollPosition = (payload: ScrollPositionPayload) => {
+      console.log(payload.first?.index, payload.last?.index)
+    }
 
     return () => (
       <>
@@ -64,6 +68,7 @@ export default defineComponent({
           buffer={120}
           pullToRefresh
           onRefresh={refreshItems}
+          onScrollPosition={handleScrollPosition}
           style={{ height: '320px', overflow: 'auto' }}
         >
           {{
@@ -82,6 +87,7 @@ export default defineComponent({
           buffer={120}
           pullToRefresh
           onRefresh={refreshItems}
+          onScrollPosition={handleScrollPosition}
           style={{ height: '360px', overflow: 'auto' }}
         >
           {{
@@ -118,6 +124,7 @@ export default defineComponent({
 - `pullToRefreshHold`：刷新中的头部保持高度，默认 `56`。
 - `onRefresh`：下拉刷新回调；启用 `pullToRefresh` 时必填。
 - `refresh` slot：自定义刷新区内容，可拿到 `{ state, inset, label, threshold, hold }`。
+- `scrollPosition`：当首个或末个**真实可见**元素变化时触发，载荷是 `{ first, last }`，其中每一项都是 `{ index, item } | null`。
 - fixed-height 窗口更新基于 range 变化判定，小步滚动只要跨过 item 边界，就会立即刷新渲染窗口。
 
 ### Expose
@@ -133,6 +140,7 @@ export default defineComponent({
 - `itemKey`：与 `RecycleScroller` 一致，必须稳定。
 - `pullToRefresh` / `pullToRefreshThreshold` / `pullToRefreshHold` / `onRefresh`：与 `RecycleScroller` 一致。
 - `refresh` slot：与 `RecycleScroller` 一致。
+- `scrollPosition`：与 `RecycleScroller` 使用同一事件契约，可通过 `@scroll-position` 或 `onScrollPosition` 监听。
 - `DynamicScrollerItem`：负责实际尺寸测量；如果你不包这一层，列表会一直停留在估算高度。
 - dynamic-size 同样按 range 变化刷新窗口，慢速滚动跨边界时不会滞后。
 - `scrollToItem()` 是“两阶段定位”：先按 `minItemSize` 估算跳转，再随着可见区内前置项的真实测量结果持续修正目标位置。

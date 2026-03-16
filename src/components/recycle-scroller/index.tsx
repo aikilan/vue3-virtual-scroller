@@ -17,6 +17,10 @@ import {
   type UseRecycleScrollerOptions,
 } from '../../composables/useRecycleScroller'
 import {
+  isSameScrollPositionPayload,
+  resolveScrollPositionPayload,
+} from '../../composables/recycle-scroller/scroll-position'
+import {
   assertValidPullToRefreshConfig,
   DEFAULT_PULL_TO_REFRESH_HOLD,
   DEFAULT_PULL_TO_REFRESH_THRESHOLD,
@@ -72,7 +76,8 @@ const RecycleScroller = defineComponent({
       default: undefined,
     },
   },
-  setup(props, { attrs, expose, slots }) {
+  emits: ['scrollPosition'],
+  setup(props, { attrs, emit, expose, slots }) {
     assertValidItemSize(props.itemSize)
 
     const containerRef = ref<HTMLElement>()
@@ -132,6 +137,7 @@ const RecycleScroller = defineComponent({
       threshold: props.pullToRefreshThreshold,
     }))
     const shouldRenderBefore = computed(() => pullToRefreshEnabled.value || Boolean(slots.before))
+    const lastScrollPosition = ref<ReturnType<typeof resolveScrollPositionPayload> | null>(null)
 
     const exposed: RecycleScrollerExpose = {
       scrollToItem,
@@ -167,6 +173,24 @@ const RecycleScroller = defineComponent({
       refreshInset,
       () => {
         updateVisibleItems()
+      },
+      { flush: 'post' },
+    )
+
+    watch(
+      [ready, visibleViews],
+      ([isReady, nextVisibleViews]) => {
+        if (!isReady) {
+          return
+        }
+
+        const nextPayload = resolveScrollPositionPayload(nextVisibleViews)
+        if (isSameScrollPositionPayload(lastScrollPosition.value, nextPayload)) {
+          return
+        }
+
+        lastScrollPosition.value = nextPayload
+        emit('scrollPosition', nextPayload)
       },
       { flush: 'post' },
     )

@@ -41,6 +41,7 @@ import {
   DynamicScroller,
   DynamicScrollerItem,
   RecycleScroller,
+  type ScrollPositionPayload,
 } from 'vue3-virtual-scroller'
 import 'vue3-virtual-scroller/style.css'
 
@@ -54,6 +55,9 @@ export default defineComponent({
     const refreshItems = async () => {
       await new Promise((resolve) => setTimeout(resolve, 300))
     }
+    const handleScrollPosition = (payload: ScrollPositionPayload) => {
+      console.log(payload.first?.index, payload.last?.index)
+    }
 
     return () => (
       <>
@@ -64,6 +68,7 @@ export default defineComponent({
           buffer={120}
           pullToRefresh
           onRefresh={refreshItems}
+          onScrollPosition={handleScrollPosition}
           style={{ height: '320px', overflow: 'auto' }}
         >
           {{
@@ -82,6 +87,7 @@ export default defineComponent({
           buffer={120}
           pullToRefresh
           onRefresh={refreshItems}
+          onScrollPosition={handleScrollPosition}
           style={{ height: '360px', overflow: 'auto' }}
         >
           {{
@@ -118,6 +124,7 @@ Detailed API notes: [docs/api.md](./docs/api.md).
 - `pullToRefreshHold`: header height kept during refresh, default `56`
 - `onRefresh`: callback for pull-to-refresh; required when `pullToRefresh` is enabled
 - `refresh` slot: custom refresh content with `{ state, inset, label, threshold, hold }`
+- `scrollPosition`: emitted when the first or last **actually visible** item changes; payload is `{ first, last }` with `{ index, item } | null`
 - Fixed-size window updates are range-based. Even small scroll deltas refresh the window as soon as an item boundary is crossed.
 
 ### Expose
@@ -133,6 +140,7 @@ Detailed API notes: [docs/api.md](./docs/api.md).
 - `itemKey`: same contract as `RecycleScroller`, and must stay stable
 - `pullToRefresh` / `pullToRefreshThreshold` / `pullToRefreshHold` / `onRefresh`: same as `RecycleScroller`
 - `refresh` slot: same contract as `RecycleScroller`
+- `scrollPosition`: same event contract as `RecycleScroller`; can be consumed with `@scroll-position` or `onScrollPosition`
 - `DynamicScrollerItem`: measures actual item size; without it the list stays at estimated sizes
 - Dynamic-size windows are also refreshed on range changes, so slow boundary-crossing scrolls do not lag
 - `scrollToItem()` is a two-phase positioning flow: jump by estimate first, then converge as real measurements arrive

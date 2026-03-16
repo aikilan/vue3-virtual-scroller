@@ -36,5 +36,7 @@ export type {
   RecycleScrollerView,
   RecycleScrollerDefaultSlotProps,
   ScrollDirection,
+  ScrollPositionItem,
+  ScrollPositionPayload,
   ScrollState,
 } from './types/recycle-scroller'

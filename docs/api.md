@@ -7,6 +7,7 @@ import {
   DynamicScroller,
   DynamicScrollerItem,
   RecycleScroller,
+  type ScrollPositionPayload,
 } from 'vue3-virtual-scroller'
 import 'vue3-virtual-scroller/style.css'
 ```
@@ -83,6 +84,44 @@ import {
 - 类型：`() => void | Promise<void>`
 - 必填：否
 - 说明：`pullToRefresh=true` 时必填；回调未完成前不会重复触发。
+
+### Events
+
+#### `scrollPosition`
+
+- 触发时机：首个或末个**真实可见**元素发生变化时；来源可以是滚动、resize、数据变更、`before` 占位变化或 dynamic-size 测量收敛。
+- 载荷类型：
+
+```ts
+type ScrollPositionPayload = {
+  first: { index: number; item: unknown } | null
+  last: { index: number; item: unknown } | null
+}
+```
+
+- 模板用法：
+
+```vue
+<RecycleScroller
+  @scroll-position="handleScrollPosition"
+  @scroll="handleNativeScroll"
+/>
+```
+
+- TSX 用法：
+
+```tsx
+const handleScrollPosition = (payload: ScrollPositionPayload) => {
+  console.log(payload.first?.index, payload.last?.index)
+}
+
+<RecycleScroller
+  onScroll={handleNativeScroll}
+  onScrollPosition={handleScrollPosition}
+/>
+```
+
+- 说明：`first` / `last` 指真实视口内的可见元素，不包含 buffer 区；该事件可与原生 `scroll` 监听并存。
 
 ### Slots
 
@@ -183,6 +222,15 @@ import {
 - 类型：`() => void | Promise<void>`
 - 必填：否
 - 说明：`pullToRefresh=true` 时必填。
+
+### Events
+
+#### `scrollPosition`
+
+- 与 `RecycleScroller` 使用相同事件名和载荷结构。
+- 模板监听：`@scroll-position="handleScrollPosition"`
+- TSX 监听：`onScrollPosition={handleScrollPosition}`
+- dynamic-size 下，首屏估算窗口和后续测量收敛都可能触发新的边界事件，只要首尾可见项发生变化就会发出。
 
 ### Slots
 

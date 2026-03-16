@@ -5,6 +5,7 @@ import { defineComponent, h, nextTick, ref } from 'vue'
 import type {
   RecycleScrollerExpose,
   RecycleScrollerRefreshSlotProps,
+  ScrollPositionPayload,
 } from '../types/recycle-scroller'
 import RecycleScroller from './recycle-scroller'
 
@@ -83,6 +84,21 @@ interface RowSlotProps {
   item: unknown
   index: number
   active: boolean
+}
+
+function getScrollPositionPayloads(
+  wrapper: ReturnType<typeof mount>,
+): ScrollPositionPayload[] {
+  return (wrapper.emitted('scrollPosition') ?? []).map(
+    (event: unknown[]) => event[0] as ScrollPositionPayload,
+  )
+}
+
+function getLastScrollPositionPayload(
+  wrapper: ReturnType<typeof mount>,
+): ScrollPositionPayload | undefined {
+  const payloads = getScrollPositionPayloads(wrapper)
+  return payloads[payloads.length - 1]
 }
 
 async function flushAnimationFrame(): Promise<void> {
@@ -226,6 +242,69 @@ describe('RecycleScroller', () => {
       'Item 3|3',
       'Item 4|4',
     ])
+  })
+
+  it('emits scrollPosition when visible boundaries change and keeps native scroll listeners', async () => {
+    const items = createItems(20)
+    const onScroll = vi.fn()
+    const wrapper = trackWrapper(mount(RecycleScroller, {
+      props: {
+        items,
+        itemSize: 30,
+        buffer: 0,
+      },
+      attrs: {
+        onScroll,
+      },
+      slots: {
+        default: ({ item, index }: RowSlotProps) =>
+          h('div', { class: 'row' }, `${(item as { label: string }).label}|${index}`),
+      },
+    }))
+
+    const { element } = await syncScroller(wrapper, { clientHeight: 89, scrollTop: 0 })
+    const initialPayloads = getScrollPositionPayloads(wrapper)
+
+    expect(getLastScrollPositionPayload(wrapper)).toEqual({
+      first: { index: 0, item: items[0] },
+      last: { index: 2, item: items[2] },
+    })
+
+    element.scrollTop = 1
+    await wrapper.trigger('scroll')
+    await flushAnimationFrame()
+
+    expect(onScroll).toHaveBeenCalledTimes(1)
+    expect(getScrollPositionPayloads(wrapper)).toHaveLength(initialPayloads.length)
+
+    element.scrollTop = 2
+    await wrapper.trigger('scroll')
+    await flushAnimationFrame()
+
+    const nextPayloads = getScrollPositionPayloads(wrapper)
+    expect(onScroll).toHaveBeenCalledTimes(2)
+    expect(nextPayloads).toHaveLength(initialPayloads.length + 1)
+    expect(getLastScrollPositionPayload(wrapper)).toEqual({
+      first: { index: 0, item: items[0] },
+      last: { index: 3, item: items[3] },
+    })
+  })
+
+  it('emits an empty scrollPosition payload when there are no visible items', async () => {
+    const wrapper = trackWrapper(mount(RecycleScroller, {
+      props: {
+        items: [],
+        itemSize: 30,
+        buffer: 0,
+      },
+    }))
+
+    await syncScroller(wrapper, { clientHeight: 90, scrollTop: 0 })
+
+    expect(getLastScrollPositionPayload(wrapper)).toEqual({
+      first: null,
+      last: null,
+    })
   })
 
   it('refreshes the render window after small boundary-crossing scroll deltas', async () => {
