@@ -1,7 +1,7 @@
 {
   "name": "vue3-virtual-scroller",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
   "type": "module",
   "packageManager": "pnpm@10.15.1",
   "main": "./dist/index.cjs",
@@ -17,7 +17,8 @@
     "./package.json": "./package.json"
   },
   "files": [
-    "dist"
+    "dist",
+    "package.json"
   ],
   "sideEffects": [
     "**/*.css"
