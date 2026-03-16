@@ -41,6 +41,7 @@ import {
   DynamicScroller,
   DynamicScrollerItem,
   RecycleScroller,
+  type ScrollBoundaryPayload,
   type ScrollPositionPayload,
 } from 'vue3-virtual-scroller'
 import 'vue3-virtual-scroller/style.css'
@@ -58,6 +59,11 @@ export default defineComponent({
     const handleScrollPosition = (payload: ScrollPositionPayload) => {
       console.log(payload.first?.index, payload.last?.index)
     }
+    const handleScrollEnd = (payload: ScrollBoundaryPayload) => {
+      if (payload.reached) {
+        console.log('load more', payload.scroll.end)
+      }
+    }
 
     return () => (
       <>
@@ -68,6 +74,7 @@ export default defineComponent({
           buffer={120}
           pullToRefresh
           onRefresh={refreshItems}
+          onScrollEnd={handleScrollEnd}
           onScrollPosition={handleScrollPosition}
           style={{ height: '320px', overflow: 'auto' }}
         >
@@ -87,6 +94,7 @@ export default defineComponent({
           buffer={120}
           pullToRefresh
           onRefresh={refreshItems}
+          onScrollEnd={handleScrollEnd}
           onScrollPosition={handleScrollPosition}
           style={{ height: '360px', overflow: 'auto' }}
         >
@@ -124,6 +132,7 @@ Detailed API notes: [docs/api.md](./docs/api.md).
 - `pullToRefreshHold`: header height kept during refresh, default `56`
 - `onRefresh`: callback for pull-to-refresh; required when `pullToRefresh` is enabled
 - `refresh` slot: custom refresh content with `{ state, inset, label, threshold, hold }`
+- `scrollTop` / `scrollEnd`: emitted in `vertical` mode when top/bottom reached-state changes; payload is `{ reached, scroll }`, useful for reset/load-more flows
 - `scrollPosition`: emitted when the first or last **actually visible** item changes; payload is `{ first, last }` with `{ index, item } | null`
 - Fixed-size window updates are range-based. Even small scroll deltas refresh the window as soon as an item boundary is crossed.
 
@@ -140,6 +149,7 @@ Detailed API notes: [docs/api.md](./docs/api.md).
 - `itemKey`: same contract as `RecycleScroller`, and must stay stable
 - `pullToRefresh` / `pullToRefreshThreshold` / `pullToRefreshHold` / `onRefresh`: same as `RecycleScroller`
 - `refresh` slot: same contract as `RecycleScroller`
+- `scrollTop` / `scrollEnd`: same boundary event contract as `RecycleScroller`; can be consumed with `@scroll-top`, `@scroll-end`, `onScrollTop`, or `onScrollEnd`
 - `scrollPosition`: same event contract as `RecycleScroller`; can be consumed with `@scroll-position` or `onScrollPosition`
 - `DynamicScrollerItem`: measures actual item size; without it the list stays at estimated sizes
 - Dynamic-size windows are also refreshed on range changes, so slow boundary-crossing scrolls do not lag

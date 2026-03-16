@@ -7,6 +7,7 @@ import {
   DynamicScroller,
   DynamicScrollerItem,
   RecycleScroller,
+  type ScrollBoundaryPayload,
   type ScrollPositionPayload,
 } from 'vue3-virtual-scroller'
 import 'vue3-virtual-scroller/style.css'
@@ -86,6 +87,41 @@ import {
 - 说明：`pullToRefresh=true` 时必填；回调未完成前不会重复触发。
 
 ### Events
+
+#### `scrollTop`
+
+- 触发时机：仅 `direction='vertical'` 时有效；初始 ready 后会先发一次当前状态，之后只有顶部 reached 状态发生变化时才会再次触发。
+- 载荷类型：
+
+```ts
+type ScrollBoundaryPayload = {
+  reached: boolean
+  scroll: { start: number; end: number }
+}
+```
+
+- 模板用法：
+
+```vue
+<RecycleScroller @scroll-top="handleScrollTop" />
+```
+
+- TSX 用法：
+
+```tsx
+const handleScrollTop = (payload: ScrollBoundaryPayload) => {
+  console.log(payload.reached, payload.scroll.start)
+}
+
+<RecycleScroller onScrollTop={handleScrollTop} />
+```
+
+#### `scrollEnd`
+
+- 触发时机：仅 `direction='vertical'` 时有效；初始 ready 后会先发一次当前状态，之后只有底部 reached 状态发生变化时才会再次触发。
+- 载荷结构与 `scrollTop` 相同，可直接用于“滚到底加载更多”判断。
+- 模板监听：`@scroll-end="handleScrollEnd"`
+- TSX 监听：`onScrollEnd={handleScrollEnd}`
 
 #### `scrollPosition`
 
@@ -225,6 +261,19 @@ const handleScrollPosition = (payload: ScrollPositionPayload) => {
 
 ### Events
 
+#### `scrollTop`
+
+- 与 `RecycleScroller` 使用相同载荷结构。
+- 模板监听：`@scroll-top="handleScrollTop"`
+- TSX 监听：`onScrollTop={handleScrollTop}`
+
+#### `scrollEnd`
+
+- 与 `RecycleScroller` 使用相同载荷结构。
+- 模板监听：`@scroll-end="handleScrollEnd"`
+- TSX 监听：`onScrollEnd={handleScrollEnd}`
+- dynamic-size 下，首屏估算结果和后续测量收敛都可能改变底部 reached 状态，因此会在状态切换时发出新事件。
+
 #### `scrollPosition`
 
 - 与 `RecycleScroller` 使用相同事件名和载荷结构。
@@ -327,6 +376,7 @@ const handleScrollPosition = (payload: ScrollPositionPayload) => {
 - `DynamicScrollerProps`
 - `DynamicSizeRange`
 - `FixedHeightRange`
+- `ScrollBoundaryPayload`
 - `PullToRefreshHandler`
 - `PullToRefreshState`
 - `RecycleScrollerDefaultSlotProps`
@@ -338,6 +388,8 @@ const handleScrollPosition = (payload: ScrollPositionPayload) => {
 - `RecycleScrollerProps`
 - `RecycleScrollerView`
 - `ScrollDirection`
+- `ScrollPositionItem`
+- `ScrollPositionPayload`
 - `ScrollState`
 
 ## 运行时约束

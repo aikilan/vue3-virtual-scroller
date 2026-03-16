@@ -32,6 +32,11 @@ export interface ScrollPositionPayload {
   last: ScrollPositionItem | null
 }
 
+export interface ScrollBoundaryPayload {
+  reached: boolean
+  scroll: ScrollState
+}
+
 export interface RecycleScrollerMeasurementState {
   beforeSize: number
   viewportSize: number
@@ -72,6 +77,8 @@ export interface RecycleScrollerProps {
   pullToRefreshThreshold?: number
   pullToRefreshHold?: number
   onRefresh?: PullToRefreshHandler
+  onScrollTop?: (payload: ScrollBoundaryPayload) => void
+  onScrollEnd?: (payload: ScrollBoundaryPayload) => void
   onScrollPosition?: (payload: ScrollPositionPayload) => void
 }
 
@@ -85,6 +92,8 @@ export interface DynamicScrollerProps {
   pullToRefreshThreshold?: number
   pullToRefreshHold?: number
   onRefresh?: PullToRefreshHandler
+  onScrollTop?: (payload: ScrollBoundaryPayload) => void
+  onScrollEnd?: (payload: ScrollBoundaryPayload) => void
   onScrollPosition?: (payload: ScrollPositionPayload) => void
 }
 

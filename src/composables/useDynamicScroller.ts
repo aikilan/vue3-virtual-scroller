@@ -52,6 +52,7 @@ export interface UseDynamicScrollerOptions {
 
 export interface UseDynamicScrollerReturn {
   handleScroll: () => void
+  measurement: Ref<RecycleScrollerMeasurementState>
   visibleViews: Ref<RecycleScrollerView[]>
   totalSize: Ref<number>
   ready: Ref<boolean>
@@ -432,6 +433,7 @@ export function useDynamicScroller(
 
   return {
     handleScroll,
+    measurement,
     visibleViews: reuseStore.visibleViews,
     totalSize,
     ready,

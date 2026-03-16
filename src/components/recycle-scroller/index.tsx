@@ -17,6 +17,10 @@ import {
   type UseRecycleScrollerOptions,
 } from '../../composables/useRecycleScroller'
 import {
+  resolveScrollBoundaryPayload,
+  resolveVerticalScrollBoundaryState,
+} from '../../composables/recycle-scroller/scroll-boundary'
+import {
   isSameScrollPositionPayload,
   resolveScrollPositionPayload,
 } from '../../composables/recycle-scroller/scroll-position'
@@ -33,6 +37,7 @@ import type {
   RecycleScrollerExpose,
   RecycleScrollerItemKey,
   ScrollDirection,
+  ScrollState,
 } from '../../types/recycle-scroller'
 
 const RecycleScroller = defineComponent({
@@ -76,7 +81,7 @@ const RecycleScroller = defineComponent({
       default: undefined,
     },
   },
-  emits: ['scrollPosition'],
+  emits: ['scrollPosition', 'scrollTop', 'scrollEnd'],
   setup(props, { attrs, emit, expose, slots }) {
     assertValidItemSize(props.itemSize)
 
@@ -85,6 +90,7 @@ const RecycleScroller = defineComponent({
 
     const {
       handleScroll,
+      measurement,
       totalSize,
       ready,
       visibleViews,
@@ -138,6 +144,8 @@ const RecycleScroller = defineComponent({
     }))
     const shouldRenderBefore = computed(() => pullToRefreshEnabled.value || Boolean(slots.before))
     const lastScrollPosition = ref<ReturnType<typeof resolveScrollPositionPayload> | null>(null)
+    const lastScrollTopReached = ref<boolean | null>(null)
+    const lastScrollEndReached = ref<boolean | null>(null)
 
     const exposed: RecycleScrollerExpose = {
       scrollToItem,
@@ -191,6 +199,60 @@ const RecycleScroller = defineComponent({
 
         lastScrollPosition.value = nextPayload
         emit('scrollPosition', nextPayload)
+      },
+      { flush: 'post' },
+    )
+
+    function syncScrollBoundaryEvents(scroll: ScrollState): void {
+      if (props.direction !== 'vertical') {
+        lastScrollTopReached.value = null
+        lastScrollEndReached.value = null
+        return
+      }
+
+      if (!containerRef.value || containerRef.value.clientHeight <= 0) {
+        lastScrollTopReached.value = null
+        lastScrollEndReached.value = null
+        return
+      }
+
+      const { topReached, endReached } = resolveVerticalScrollBoundaryState(
+        containerRef.value,
+        scroll,
+      )
+
+      if (lastScrollTopReached.value !== topReached) {
+        lastScrollTopReached.value = topReached
+        emit('scrollTop', resolveScrollBoundaryPayload(topReached, scroll))
+      }
+
+      if (lastScrollEndReached.value !== endReached) {
+        lastScrollEndReached.value = endReached
+        emit('scrollEnd', resolveScrollBoundaryPayload(endReached, scroll))
+      }
+    }
+
+    watch(
+      () => props.direction,
+      (direction) => {
+        if (direction === 'vertical') {
+          return
+        }
+
+        lastScrollTopReached.value = null
+        lastScrollEndReached.value = null
+      },
+      { flush: 'post' },
+    )
+
+    watch(
+      [ready, measurement],
+      ([isReady, nextMeasurement]) => {
+        if (!isReady) {
+          return
+        }
+
+        syncScrollBoundaryEvents(nextMeasurement.scroll)
       },
       { flush: 'post' },
     )

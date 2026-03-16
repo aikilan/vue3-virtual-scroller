@@ -5,6 +5,7 @@ import { defineComponent, h, nextTick, ref } from 'vue'
 import type {
   RecycleScrollerExpose,
   RecycleScrollerRefreshSlotProps,
+  ScrollBoundaryPayload,
   ScrollPositionPayload,
 } from '../types/recycle-scroller'
 import RecycleScroller from './recycle-scroller'
@@ -14,6 +15,8 @@ interface MetricOptions {
   clientWidth?: number
   offsetHeight?: number
   offsetWidth?: number
+  scrollHeight?: number
+  scrollWidth?: number
   scrollTop?: number
   scrollLeft?: number
 }
@@ -98,6 +101,23 @@ function getLastScrollPositionPayload(
   wrapper: ReturnType<typeof mount>,
 ): ScrollPositionPayload | undefined {
   const payloads = getScrollPositionPayloads(wrapper)
+  return payloads[payloads.length - 1]
+}
+
+function getScrollBoundaryPayloads(
+  wrapper: ReturnType<typeof mount>,
+  eventName: 'scrollTop' | 'scrollEnd',
+): ScrollBoundaryPayload[] {
+  return (wrapper.emitted(eventName) ?? []).map(
+    (event: unknown[]) => event[0] as ScrollBoundaryPayload,
+  )
+}
+
+function getLastScrollBoundaryPayload(
+  wrapper: ReturnType<typeof mount>,
+  eventName: 'scrollTop' | 'scrollEnd',
+): ScrollBoundaryPayload | undefined {
+  const payloads = getScrollBoundaryPayloads(wrapper, eventName)
   return payloads[payloads.length - 1]
 }
 
@@ -307,6 +327,84 @@ describe('RecycleScroller', () => {
     })
   })
 
+  it('emits scrollTop and scrollEnd when vertical boundary states change', async () => {
+    const items = createItems(6)
+    const wrapper = trackWrapper(mount(RecycleScroller, {
+      props: {
+        items,
+        itemSize: 30,
+        buffer: 0,
+      },
+      slots: {
+        default: ({ item, index }: RowSlotProps) =>
+          h('div', { class: 'row' }, `${(item as { label: string }).label}|${index}`),
+      },
+    }))
+
+    const { element, vm } = await syncScroller(wrapper, {
+      clientHeight: 90,
+      scrollHeight: 180,
+      scrollTop: 0,
+    })
+    const initialTopPayloads = getScrollBoundaryPayloads(wrapper, 'scrollTop')
+    const initialEndPayloads = getScrollBoundaryPayloads(wrapper, 'scrollEnd')
+
+    expect(getLastScrollBoundaryPayload(wrapper, 'scrollTop')).toEqual({
+      reached: true,
+      scroll: { start: 0, end: 90 },
+    })
+    expect(getLastScrollBoundaryPayload(wrapper, 'scrollEnd')).toEqual({
+      reached: false,
+      scroll: { start: 0, end: 90 },
+    })
+
+    element.scrollTop = 1
+    await wrapper.trigger('scroll')
+    await flushAnimationFrame()
+
+    expect(getScrollBoundaryPayloads(wrapper, 'scrollTop')).toHaveLength(initialTopPayloads.length)
+    expect(getScrollBoundaryPayloads(wrapper, 'scrollEnd')).toHaveLength(initialEndPayloads.length)
+
+    element.scrollTop = 2
+    await wrapper.trigger('scroll')
+    await flushAnimationFrame()
+
+    expect(getScrollBoundaryPayloads(wrapper, 'scrollTop')).toHaveLength(initialTopPayloads.length + 1)
+    expect(getLastScrollBoundaryPayload(wrapper, 'scrollTop')).toEqual({
+      reached: false,
+      scroll: { start: 2, end: 92 },
+    })
+
+    element.scrollTop = 89
+    await wrapper.trigger('scroll')
+    await flushAnimationFrame()
+
+    expect(getScrollBoundaryPayloads(wrapper, 'scrollEnd')).toHaveLength(initialEndPayloads.length + 1)
+    expect(getLastScrollBoundaryPayload(wrapper, 'scrollEnd')).toEqual({
+      reached: true,
+      scroll: { start: 89, end: 179 },
+    })
+
+    element.scrollTop = 87
+    await wrapper.trigger('scroll')
+    await flushAnimationFrame()
+
+    expect(getScrollBoundaryPayloads(wrapper, 'scrollEnd')).toHaveLength(initialEndPayloads.length + 2)
+    expect(getLastScrollBoundaryPayload(wrapper, 'scrollEnd')).toEqual({
+      reached: false,
+      scroll: { start: 87, end: 177 },
+    })
+
+    vm.scrollToPosition(0)
+    await settleScroller()
+
+    expect(getScrollBoundaryPayloads(wrapper, 'scrollTop')).toHaveLength(initialTopPayloads.length + 2)
+    expect(getLastScrollBoundaryPayload(wrapper, 'scrollTop')).toEqual({
+      reached: true,
+      scroll: { start: 0, end: 90 },
+    })
+  })
+
   it('refreshes the render window after small boundary-crossing scroll deltas', async () => {
     const wrapper = trackWrapper(mount(RecycleScroller, {
       props: {
@@ -370,6 +468,53 @@ describe('RecycleScroller', () => {
 
     vm.scrollToPosition(40)
     expect(element.scrollLeft).toBe(40)
+    await settleScroller()
+
+    expect(wrapper.emitted('scrollTop')).toBeUndefined()
+    expect(wrapper.emitted('scrollEnd')).toBeUndefined()
+  })
+
+  it('waits for vertical measurement refresh before emitting boundary events after direction changes', async () => {
+    const wrapper = trackWrapper(mount(RecycleScroller, {
+      props: {
+        items: createItems(6),
+        itemSize: 30,
+        buffer: 0,
+        direction: 'horizontal',
+      },
+      slots: {
+        default: ({ item }: RowSlotProps) =>
+          h('div', { class: 'cell' }, (item as { label: string }).label),
+      },
+    }))
+
+    await syncScroller(wrapper, {
+      clientHeight: 90,
+      clientWidth: 120,
+      scrollHeight: 180,
+      scrollLeft: 40,
+      scrollTop: 90,
+      scrollWidth: 180,
+    })
+
+    expect(wrapper.emitted('scrollTop')).toBeUndefined()
+    expect(wrapper.emitted('scrollEnd')).toBeUndefined()
+
+    await wrapper.setProps({ direction: 'vertical' })
+    await settleScroller()
+
+    expect(getScrollBoundaryPayloads(wrapper, 'scrollTop')).toEqual([
+      {
+        reached: false,
+        scroll: { start: 90, end: 180 },
+      },
+    ])
+    expect(getScrollBoundaryPayloads(wrapper, 'scrollEnd')).toEqual([
+      {
+        reached: true,
+        scroll: { start: 90, end: 180 },
+      },
+    ])
   })
 
   it('includes before slot size in scrollToItem and updates on resize', async () => {

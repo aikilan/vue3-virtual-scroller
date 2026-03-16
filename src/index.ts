@@ -35,6 +35,7 @@ export type {
   RecycleScrollerRefreshSlotProps,
   RecycleScrollerView,
   RecycleScrollerDefaultSlotProps,
+  ScrollBoundaryPayload,
   ScrollDirection,
   ScrollPositionItem,
   ScrollPositionPayload,

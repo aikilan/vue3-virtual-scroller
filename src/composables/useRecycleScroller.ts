@@ -46,6 +46,7 @@ export interface UseRecycleScrollerOptions {
 
 export interface UseRecycleScrollerReturn {
   handleScroll: () => void
+  measurement: Ref<RecycleScrollerMeasurementState>
   visibleViews: Ref<RecycleScrollerView[]>
   totalSize: Ref<number>
   ready: Ref<boolean>
@@ -291,6 +292,7 @@ export function useRecycleScroller(
 
   return {
     handleScroll,
+    measurement,
     visibleViews: reuseStore.visibleViews,
     totalSize,
     ready,

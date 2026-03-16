@@ -6,6 +6,7 @@ import type {
   DynamicScrollerDefaultSlotProps,
   DynamicScrollerExpose,
   DynamicScrollerRefreshSlotProps,
+  ScrollBoundaryPayload,
   ScrollPositionPayload,
 } from '../types/recycle-scroller'
 import DynamicScroller from './dynamic-scroller'
@@ -14,6 +15,7 @@ import DynamicScrollerItem from './dynamic-scroller-item'
 interface MetricOptions {
   clientHeight?: number
   offsetHeight?: number
+  scrollHeight?: number
   scrollTop?: number
 }
 
@@ -110,6 +112,23 @@ function getLastScrollPositionPayload(
   wrapper: ReturnType<typeof mount>,
 ): ScrollPositionPayload | undefined {
   const payloads = getScrollPositionPayloads(wrapper)
+  return payloads[payloads.length - 1]
+}
+
+function getScrollBoundaryPayloads(
+  wrapper: ReturnType<typeof mount>,
+  eventName: 'scrollTop' | 'scrollEnd',
+): ScrollBoundaryPayload[] {
+  return (wrapper.emitted(eventName) ?? []).map(
+    (event: unknown[]) => event[0] as ScrollBoundaryPayload,
+  )
+}
+
+function getLastScrollBoundaryPayload(
+  wrapper: ReturnType<typeof mount>,
+  eventName: 'scrollTop' | 'scrollEnd',
+): ScrollBoundaryPayload | undefined {
+  const payloads = getScrollBoundaryPayloads(wrapper, eventName)
   return payloads[payloads.length - 1]
 }
 
@@ -281,6 +300,114 @@ describe('DynamicScroller', () => {
     expect(getLastScrollPositionPayload(wrapper)).toEqual({
       first: { index: 0, item: items[0] },
       last: { index: 0, item: items[0] },
+    })
+  })
+
+  it('emits scrollTop and scrollEnd when dynamic boundary states change and keeps native scroll listeners', async () => {
+    const onScroll = vi.fn()
+    const wrapper = trackWrapper(mount(DynamicScroller, {
+      props: {
+        items: createStories(4),
+        minItemSize: 50,
+        buffer: 0,
+      },
+      attrs: {
+        onScroll,
+      },
+      slots: {
+        default: renderDynamicSlot,
+      },
+    }))
+
+    const { element, vm } = await syncDynamicScroller(wrapper, {
+      clientHeight: 100,
+      scrollHeight: 200,
+      scrollTop: 0,
+    })
+    const initialTopPayloads = getScrollBoundaryPayloads(wrapper, 'scrollTop')
+    const initialEndPayloads = getScrollBoundaryPayloads(wrapper, 'scrollEnd')
+
+    expect(getLastScrollBoundaryPayload(wrapper, 'scrollTop')).toEqual({
+      reached: true,
+      scroll: { start: 0, end: 100 },
+    })
+    expect(getLastScrollBoundaryPayload(wrapper, 'scrollEnd')).toEqual({
+      reached: false,
+      scroll: { start: 0, end: 100 },
+    })
+
+    element.scrollTop = 1
+    await wrapper.trigger('scroll')
+    await flushAnimationFrame()
+
+    expect(onScroll).toHaveBeenCalledTimes(1)
+    expect(getScrollBoundaryPayloads(wrapper, 'scrollTop')).toHaveLength(initialTopPayloads.length)
+
+    element.scrollTop = 2
+    await wrapper.trigger('scroll')
+    await flushAnimationFrame()
+
+    expect(onScroll).toHaveBeenCalledTimes(2)
+    expect(getScrollBoundaryPayloads(wrapper, 'scrollTop')).toHaveLength(initialTopPayloads.length + 1)
+    expect(getLastScrollBoundaryPayload(wrapper, 'scrollTop')).toEqual({
+      reached: false,
+      scroll: { start: 2, end: 102 },
+    })
+
+    element.scrollTop = 99
+    await wrapper.trigger('scroll')
+    await flushAnimationFrame()
+
+    expect(getScrollBoundaryPayloads(wrapper, 'scrollEnd')).toHaveLength(initialEndPayloads.length + 1)
+    expect(getLastScrollBoundaryPayload(wrapper, 'scrollEnd')).toEqual({
+      reached: true,
+      scroll: { start: 99, end: 199 },
+    })
+
+    vm.scrollToPosition(0)
+    await settleScroller()
+
+    expect(getScrollBoundaryPayloads(wrapper, 'scrollTop')).toHaveLength(initialTopPayloads.length + 2)
+    expect(getLastScrollBoundaryPayload(wrapper, 'scrollTop')).toEqual({
+      reached: true,
+      scroll: { start: 0, end: 100 },
+    })
+  })
+
+  it('emits scrollEnd state changes when dynamic measurement convergence changes the bottom boundary', async () => {
+    const wrapper = trackWrapper(mount(DynamicScroller, {
+      props: {
+        items: createStories(2),
+        minItemSize: 50,
+        buffer: 0,
+      },
+      slots: {
+        default: renderDynamicSlot,
+      },
+    }))
+
+    const { element } = await syncDynamicScroller(wrapper, {
+      clientHeight: 100,
+      scrollHeight: 100,
+      scrollTop: 0,
+    })
+    const initialEndPayloads = getScrollBoundaryPayloads(wrapper, 'scrollEnd')
+
+    expect(getLastScrollBoundaryPayload(wrapper, 'scrollEnd')).toEqual({
+      reached: true,
+      scroll: { start: 0, end: 100 },
+    })
+
+    const itemElements = wrapper.findAll('.vue-dynamic-scroller-item')
+    setElementMetrics(element, { scrollHeight: 190 })
+    setElementMetrics(itemElements[0].element as HTMLElement, { offsetHeight: 140 })
+    ResizeObserverMock.triggerAll()
+    await flushAnimationFrame()
+
+    expect(getScrollBoundaryPayloads(wrapper, 'scrollEnd')).toHaveLength(initialEndPayloads.length + 1)
+    expect(getLastScrollBoundaryPayload(wrapper, 'scrollEnd')).toEqual({
+      reached: false,
+      scroll: { start: 0, end: 100 },
     })
   })
 

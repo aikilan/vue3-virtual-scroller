@@ -41,6 +41,7 @@ import {
   DynamicScroller,
   DynamicScrollerItem,
   RecycleScroller,
+  type ScrollBoundaryPayload,
   type ScrollPositionPayload,
 } from 'vue3-virtual-scroller'
 import 'vue3-virtual-scroller/style.css'
@@ -58,6 +59,11 @@ export default defineComponent({
     const handleScrollPosition = (payload: ScrollPositionPayload) => {
       console.log(payload.first?.index, payload.last?.index)
     }
+    const handleScrollEnd = (payload: ScrollBoundaryPayload) => {
+      if (payload.reached) {
+        console.log('load more', payload.scroll.end)
+      }
+    }
 
     return () => (
       <>
@@ -68,6 +74,7 @@ export default defineComponent({
           buffer={120}
           pullToRefresh
           onRefresh={refreshItems}
+          onScrollEnd={handleScrollEnd}
           onScrollPosition={handleScrollPosition}
           style={{ height: '320px', overflow: 'auto' }}
         >
@@ -87,6 +94,7 @@ export default defineComponent({
           buffer={120}
           pullToRefresh
           onRefresh={refreshItems}
+          onScrollEnd={handleScrollEnd}
           onScrollPosition={handleScrollPosition}
           style={{ height: '360px', overflow: 'auto' }}
         >
@@ -124,6 +132,7 @@ export default defineComponent({
 - `pullToRefreshHold`：刷新中的头部保持高度，默认 `56`。
 - `onRefresh`：下拉刷新回调；启用 `pullToRefresh` 时必填。
 - `refresh` slot：自定义刷新区内容，可拿到 `{ state, inset, label, threshold, hold }`。
+- `scrollTop` / `scrollEnd`：仅在 `vertical` 模式下触发，当顶部/底部的 reached 状态变化时发出；载荷是 `{ reached, scroll }`，适合做重置或加载更多。
 - `scrollPosition`：当首个或末个**真实可见**元素变化时触发，载荷是 `{ first, last }`，其中每一项都是 `{ index, item } | null`。
 - fixed-height 窗口更新基于 range 变化判定，小步滚动只要跨过 item 边界，就会立即刷新渲染窗口。
 
@@ -140,6 +149,7 @@ export default defineComponent({
 - `itemKey`：与 `RecycleScroller` 一致，必须稳定。
 - `pullToRefresh` / `pullToRefreshThreshold` / `pullToRefreshHold` / `onRefresh`：与 `RecycleScroller` 一致。
 - `refresh` slot：与 `RecycleScroller` 一致。
+- `scrollTop` / `scrollEnd`：与 `RecycleScroller` 使用同一边界事件契约，可通过 `@scroll-top`、`@scroll-end`、`onScrollTop` 或 `onScrollEnd` 监听。
 - `scrollPosition`：与 `RecycleScroller` 使用同一事件契约，可通过 `@scroll-position` 或 `onScrollPosition` 监听。
 - `DynamicScrollerItem`：负责实际尺寸测量；如果你不包这一层，列表会一直停留在估算高度。
 - dynamic-size 同样按 range 变化刷新窗口，慢速滚动跨边界时不会滞后。

@@ -1,10 +1,10 @@
 import {
   computed,
   defineComponent,
-  h,
   nextTick,
   ref,
   watch,
+  type VNodeChild,
 } from 'vue'
 
 import {
@@ -17,6 +17,7 @@ import type {
   DynamicScrollerExpose,
   RecycleScrollerDefaultSlotProps,
   RecycleScrollerExpose,
+  ScrollBoundaryPayload,
 } from './index'
 
 interface DemoMessage {
@@ -71,6 +72,7 @@ const DYNAMIC_BATCH_SIZE = 18
 const CONTAINER_ITEM_SIZE = 72
 const REFRESH_ITEM_SIZE = 68
 const DYNAMIC_MIN_ITEM_SIZE = 88
+const DEMO_SCROLLER_MAX_HEIGHT = 420
 
 const demoTabs: DemoTab[] = [
   {
@@ -115,6 +117,9 @@ const App = defineComponent({
     const dynamicRevision = ref(0)
     const refreshPending = ref(false)
     const dynamicRefreshPending = ref(false)
+    const containerScrollEndPending = ref(false)
+    const refreshScrollEndPending = ref(false)
+    const dynamicScrollEndPending = ref(false)
     const scrollerRef = ref<RecycleScrollerExpose | null>(null)
     const refreshScrollerRef = ref<RecycleScrollerExpose | null>(null)
     const dynamicScrollerRef = ref<DynamicScrollerExpose | null>(null)
@@ -164,14 +169,6 @@ const App = defineComponent({
       }
     }
 
-    const resolveLoadThreshold = (fallback: number) => {
-      if (typeof window === 'undefined') {
-        return fallback
-      }
-
-      return Math.min(Math.max(window.innerHeight * 0.65, 180), fallback)
-    }
-
     async function ensureContainerTargetLoaded(index: number): Promise<void> {
       if (index < 0) {
         return
@@ -192,41 +189,61 @@ const App = defineComponent({
       }
     }
 
-    const maybeLoadContainerMore = () => {
-      const scroll = scrollerRef.value?.getScroll()
-      if (!scroll || containerLoadedCount.value >= messages.length) {
+    const backfillFromScrollEnd = async (
+      payload: ScrollBoundaryPayload,
+      options: {
+        batchSize: number
+        canStopBackfill: () => boolean
+        loadedCount: { value: number }
+        pending: { value: boolean }
+        total: number
+      },
+    ): Promise<void> => {
+      if (!payload.reached || options.loadedCount.value >= options.total || options.pending.value) {
         return
       }
 
-      const threshold = Math.min(viewportHeight.value * 0.8, 280)
-      const estimatedTotal = Math.max(filteredMessages.value.length * CONTAINER_ITEM_SIZE, 0)
-      if (scroll.end + threshold >= estimatedTotal) {
-        extendLoadedCount(containerLoadedCount, messages.length, CONTAINER_BATCH_SIZE)
+      options.pending.value = true
+
+      try {
+        do {
+          extendLoadedCount(options.loadedCount, options.total, options.batchSize)
+          await nextTick()
+        } while (options.loadedCount.value < options.total && !options.canStopBackfill())
+      }
+      finally {
+        options.pending.value = false
       }
     }
 
-    const maybeLoadRefreshMore = () => {
-      const scroll = refreshScrollerRef.value?.getScroll()
-      if (!scroll || refreshLoadedCount.value >= messages.length) {
-        return
-      }
-
-      const estimatedTotal = refreshMessages.value.length * REFRESH_ITEM_SIZE
-      if (scroll.end + resolveLoadThreshold(320) >= estimatedTotal) {
-        extendLoadedCount(refreshLoadedCount, messages.length, REFRESH_BATCH_SIZE)
-      }
+    const handleContainerScrollEnd = (payload: ScrollBoundaryPayload) => {
+      void backfillFromScrollEnd(payload, {
+        batchSize: CONTAINER_BATCH_SIZE,
+        canStopBackfill: () => filteredMessages.value.length * CONTAINER_ITEM_SIZE > viewportHeight.value,
+        loadedCount: containerLoadedCount,
+        pending: containerScrollEndPending,
+        total: messages.length,
+      })
     }
 
-    const maybeLoadDynamicMore = () => {
-      const scroll = dynamicScrollerRef.value?.getScroll()
-      if (!scroll || dynamicLoadedCount.value >= dynamicStories.length) {
-        return
-      }
+    const handleRefreshScrollEnd = (payload: ScrollBoundaryPayload) => {
+      void backfillFromScrollEnd(payload, {
+        batchSize: REFRESH_BATCH_SIZE,
+        canStopBackfill: () => refreshMessages.value.length * REFRESH_ITEM_SIZE > DEMO_SCROLLER_MAX_HEIGHT,
+        loadedCount: refreshLoadedCount,
+        pending: refreshScrollEndPending,
+        total: messages.length,
+      })
+    }
 
-      const estimatedTotal = loadedDynamicStories.value.length * DYNAMIC_MIN_ITEM_SIZE
-      if (scroll.end + resolveLoadThreshold(320) >= estimatedTotal) {
-        extendLoadedCount(dynamicLoadedCount, dynamicStories.length, DYNAMIC_BATCH_SIZE)
-      }
+    const handleDynamicScrollEnd = (payload: ScrollBoundaryPayload) => {
+      void backfillFromScrollEnd(payload, {
+        batchSize: DYNAMIC_BATCH_SIZE,
+        canStopBackfill: () => loadedDynamicStories.value.length * DYNAMIC_MIN_ITEM_SIZE > DEMO_SCROLLER_MAX_HEIGHT,
+        loadedCount: dynamicLoadedCount,
+        pending: dynamicScrollEndPending,
+        total: dynamicStories.length,
+      })
     }
 
     const scrollFixedTarget = async (): Promise<void> => {
@@ -248,7 +265,6 @@ const App = defineComponent({
       await ensureLoadedIndex(refreshLoadedCount, messages.length, REFRESH_BATCH_SIZE, refreshTarget.value)
       const safeIndex = Math.max(0, Math.min(refreshTarget.value, messages.length - 1))
       refreshScrollerRef.value?.scrollToItem(safeIndex)
-      maybeLoadRefreshMore()
     }
 
     const scrollDynamicTarget = async (): Promise<void> => {
@@ -259,7 +275,6 @@ const App = defineComponent({
       await ensureLoadedIndex(dynamicLoadedCount, dynamicStories.length, DYNAMIC_BATCH_SIZE, dynamicTarget.value)
       const safeIndex = Math.max(0, Math.min(dynamicTarget.value, dynamicStories.length - 1))
       dynamicScrollerRef.value?.scrollToItem(safeIndex)
-      maybeLoadDynamicMore()
     }
 
     const refreshFeed = async (): Promise<void> => {
@@ -320,69 +335,55 @@ const App = defineComponent({
       },
     )
 
-    watch(
-      activeDemo,
-      async (demo) => {
-        await nextTick()
-        if (demo === 'container') {
-          maybeLoadContainerMore()
-          return
-        }
-
-        if (demo === 'refresh') {
-          maybeLoadRefreshMore()
-          return
-        }
-
-        maybeLoadDynamicMore()
-      },
+    const renderMetricGrid = (metrics: DemoMetric[]) => (
+      <div class="demo-metric-grid">
+        {metrics.map((metric) => (
+          <article key={metric.label} class="demo-metric">
+            <p class="demo-metric__label">{metric.label}</p>
+            <strong class="demo-metric__value">{metric.value}</strong>
+            <p class="demo-metric__detail">{metric.detail}</p>
+          </article>
+        ))}
+      </div>
     )
 
-    const renderMetricGrid = (metrics: DemoMetric[]) =>
-      h('div', { class: 'demo-metric-grid' }, metrics.map((metric) =>
-        h('article', { key: metric.label, class: 'demo-metric' }, [
-          h('p', { class: 'demo-metric__label' }, metric.label),
-          h('strong', { class: 'demo-metric__value' }, metric.value),
-          h('p', { class: 'demo-metric__detail' }, metric.detail),
-        ]),
-      ))
-
     const renderDemoScaffold = (options: {
-      controls: ReturnType<typeof h>
+      controls: VNodeChild
       description: string
       eyebrow: string
       metrics: DemoMetric[]
       panelClass?: string
-      preview: ReturnType<typeof h>
+      preview: VNodeChild
       previewClass?: string
       title: string
-    }) =>
-      h('section', { class: ['demo-panel', options.panelClass] }, [
-        h('div', { class: 'demo-layout' }, [
-          h('div', { class: 'demo-sidebar' }, [
-            h('div', { class: 'demo-panel__heading' }, [
-              h('p', { class: 'demo-panel__eyebrow' }, options.eyebrow),
-              h('h2', options.title),
-              h('p', options.description),
-            ]),
-            renderMetricGrid(options.metrics),
-            h('div', { class: 'demo-control-stack' }, [
-              h('p', { class: 'demo-control-stack__label' }, 'Controls'),
-              options.controls,
-            ]),
-          ]),
-          h('div', { class: ['demo-preview', options.previewClass] }, [
-            h('p', { class: 'demo-preview__eyebrow' }, 'Live Preview'),
-            options.preview,
-          ]),
-        ]),
-      ])
+    }) => (
+      <section class={['demo-panel', options.panelClass]}>
+        <div class="demo-layout">
+          <div class="demo-sidebar">
+            <div class="demo-panel__heading">
+              <p class="demo-panel__eyebrow">{options.eyebrow}</p>
+              <h2>{options.title}</h2>
+              <p>{options.description}</p>
+            </div>
+            {renderMetricGrid(options.metrics)}
+            <div class="demo-control-stack">
+              <p class="demo-control-stack__label">Controls</p>
+              {options.controls}
+            </div>
+          </div>
+          <div class={['demo-preview', options.previewClass]}>
+            <p class="demo-preview__eyebrow">Live Preview</p>
+            {options.preview}
+          </div>
+        </div>
+      </section>
+    )
 
     const renderContainerDemo = () =>
       renderDemoScaffold({
         eyebrow: 'Container Mode',
         title: '固定高度容器滚动',
-        description: '基础 fixed-height container 路径保留了 before slot、buffer、itemKey 和 imperative scroll。列表接近底部时会自动加载更多，方便观察 container-only 的窗口刷新。',
+        description: '基础 fixed-height container 路径保留了 before slot、buffer、itemKey 和 imperative scroll。列表滚到底部时会通过新的 scrollEnd 事件自动加载更多，方便观察 container-only 的窗口刷新。',
         metrics: [
           {
             label: 'Loaded Data',
@@ -400,87 +401,84 @@ const App = defineComponent({
             detail: '过滤后实际参与渲染的数据量',
           },
         ],
-        controls: h('section', { class: 'demo-toolbar' }, [
-          h('label', { class: 'demo-field' }, [
-            h('span', '过滤内容'),
-            h('input', {
-              value: filter.value,
-              placeholder: '输入 Message 关键字',
-              type: 'text',
-              onInput: handleFilterInput,
-            }),
-          ]),
-          h('label', { class: 'demo-field demo-field--narrow' }, [
-            h('span', '滚动到索引'),
-            h('input', {
-              value: String(targetIndex.value),
-              min: '0',
-              type: 'number',
-              onInput: (event: Event) => handleTargetIndexInput(event, (value) => {
-                targetIndex.value = value
-              }),
-            }),
-          ]),
-          h('label', { class: 'demo-field demo-field--narrow' }, [
-            h('span', '容器高度'),
-            h('input', {
-              value: String(viewportHeight.value),
-              min: '180',
-              step: '12',
-              type: 'number',
-              onInput: handleViewportHeightInput,
-            }),
-          ]),
-          h(
-            'button',
-            {
-              class: 'demo-button',
-              type: 'button',
-              onClick: scrollFixedTarget,
-            },
-            'scrollToItem()',
-          ),
-        ]),
-        preview: h(
-          RecycleScroller,
-          {
-            ref: scrollerRef,
-            class: 'demo-scroller',
-            items: filteredMessages.value,
-            itemSize: CONTAINER_ITEM_SIZE,
-            itemKey: 'id',
-            buffer: 144,
-            onScroll: maybeLoadContainerMore,
-            style: {
+        controls: (
+          <section class="demo-toolbar">
+            <label class="demo-field">
+              <span>过滤内容</span>
+              <input
+                value={filter.value}
+                placeholder="输入 Message 关键字"
+                type="text"
+                onInput={handleFilterInput}
+              />
+            </label>
+            <label class="demo-field demo-field--narrow">
+              <span>滚动到索引</span>
+              <input
+                value={String(targetIndex.value)}
+                min="0"
+                type="number"
+                onInput={(event: Event) => handleTargetIndexInput(event, (value) => {
+                  targetIndex.value = value
+                })}
+              />
+            </label>
+            <label class="demo-field demo-field--narrow">
+              <span>容器高度</span>
+              <input
+                value={String(viewportHeight.value)}
+                min="180"
+                step="12"
+                type="number"
+                onInput={handleViewportHeightInput}
+              />
+            </label>
+            <button class="demo-button" type="button" onClick={scrollFixedTarget}>
+              scrollToItem()
+            </button>
+          </section>
+        ),
+        preview: (
+          <RecycleScroller
+            ref={scrollerRef}
+            class="demo-scroller"
+            items={filteredMessages.value}
+            itemSize={CONTAINER_ITEM_SIZE}
+            itemKey="id"
+            buffer={144}
+            onScrollEnd={handleContainerScrollEnd}
+            style={{
               height: `min(${viewportHeight.value}px, 62vh)`,
-            },
-          },
-          {
-            before: () =>
-              h(
-                'div',
-                { class: 'demo-banner' },
-                `Container mode with itemKey="id", itemSize=${CONTAINER_ITEM_SIZE}px and viewport=${viewportHeight.value}px.`,
+            }}
+          >
+            {{
+              before: () => (
+                <div class="demo-banner">
+                  {`Container mode with itemKey="id", itemSize=${CONTAINER_ITEM_SIZE}px and viewport=${viewportHeight.value}px.`}
+                </div>
               ),
-            default: ({ item, index, active }: RecycleScrollerDefaultSlotProps) =>
-              h('article', { class: 'demo-row', 'data-active': String(active) }, [
-                h('span', { class: 'demo-row__index' }, `#${index}`),
-                h('div', { class: 'demo-row__content' }, [
-                  h('strong', getMessageTitle(item)),
-                  h('p', getMessagePreview(item)),
-                ]),
-                h('span', { class: 'demo-row__state' }, active ? 'active' : 'buffered'),
-              ]),
-            after: () =>
-              h(
-                'div',
-                { class: 'demo-footer' },
-                containerLoadedCount.value >= messages.length
-                  ? '全部 demo 数据都已经加载完成。'
-                  : `已加载 ${containerLoadedCount.value}/${messages.length} 条数据，继续滑动会自动追加下一批。`,
+              default: ({ item, index, active }: RecycleScrollerDefaultSlotProps) => (
+                <article class="demo-row" data-active={String(active)}>
+                  <span class="demo-row__index">{`#${index}`}</span>
+                  <div class="demo-row__content">
+                    <strong>{getMessageTitle(item)}</strong>
+                    <p>{getMessagePreview(item)}</p>
+                  </div>
+                  <span class="demo-row__state">{active ? 'active' : 'buffered'}</span>
+                </article>
               ),
-            empty: () => h('div', { class: 'demo-empty' }, 'No messages matched the current filter.'),
-          },
+              after: () => (
+                <div class="demo-footer">
+                  {containerLoadedCount.value >= messages.length
+                    ? '全部 demo 数据都已经加载完成。'
+                    : `已加载 ${containerLoadedCount.value}/${messages.length} 条数据，滚到底部会自动追加下一批。`}
+                </div>
+              ),
+              empty: () => (
+                <div class="demo-empty">No messages matched the current filter.</div>
+              ),
+            }}
+          </RecycleScroller>
         ),
       })
 
@@ -488,7 +486,7 @@ const App = defineComponent({
       renderDemoScaffold({
         eyebrow: 'Pull To Refresh',
         title: '固定高度下拉刷新',
-        description: '这里保留容器滚动，但在顶部加入默认关闭、当前示例显式开启的 pull-to-refresh。列表仍然支持滑动加载更多，刷新期间会把内部 refresh header 叠加到 before 占位里。',
+        description: '这里保留容器滚动，但在顶部加入默认关闭、当前示例显式开启的 pull-to-refresh。列表滚到底部时会通过 scrollEnd 自动加载更多，刷新期间会把内部 refresh header 叠加到 before 占位里。',
         panelClass: 'demo-panel--refresh',
         previewClass: 'demo-preview--refresh',
         metrics: [
@@ -508,76 +506,71 @@ const App = defineComponent({
             detail: '超过阈值松手后触发异步刷新',
           },
         ],
-        controls: h('div', { class: 'demo-toolbar demo-toolbar--compact' }, [
-          h('label', { class: 'demo-field demo-field--narrow' }, [
-            h('span', '刷新列表索引'),
-            h('input', {
-              value: String(refreshTarget.value),
-              min: '0',
-              type: 'number',
-              onInput: (event: Event) => handleTargetIndexInput(event, (value) => {
-                refreshTarget.value = value
-              }),
-            }),
-          ]),
-          h(
-            'button',
-            {
-              class: 'demo-button',
-              type: 'button',
-              onClick: scrollRefreshTarget,
-            },
-            'refresh scrollToItem()',
-          ),
-        ]),
-        preview: h('div', { class: 'demo-refresh-shell' }, [
-          h('div', { class: 'demo-refresh-intro' }, [
-            h('strong', 'Pull from the top'),
-            h('p', '回到顶部后继续下拉，跨过阈值松手就会触发 refresh 回调。这个 demo 仍然保持局部容器滚动，而不是 document scroll。'),
-          ]),
-          h(
-            RecycleScroller,
-            {
-              ref: refreshScrollerRef,
-              class: 'demo-refresh-scroller',
-              items: refreshMessages.value,
-              itemSize: REFRESH_ITEM_SIZE,
-              itemKey: 'id',
-              buffer: 180,
-              pullToRefresh: true,
-              onRefresh: refreshFeed,
-              onScroll: maybeLoadRefreshMore,
-              style: {
-                height: 'min(420px, 60vh)',
-              },
-            },
-            {
-              before: () =>
-                h(
-                  'div',
-                  { class: 'demo-banner' },
-                  `Pull-to-refresh is enabled. Refresh pass #${refreshRevision.value}.`,
+        controls: (
+          <div class="demo-toolbar demo-toolbar--compact">
+            <label class="demo-field demo-field--narrow">
+              <span>刷新列表索引</span>
+              <input
+                value={String(refreshTarget.value)}
+                min="0"
+                type="number"
+                onInput={(event: Event) => handleTargetIndexInput(event, (value) => {
+                  refreshTarget.value = value
+                })}
+              />
+            </label>
+            <button class="demo-button" type="button" onClick={scrollRefreshTarget}>
+              refresh scrollToItem()
+            </button>
+          </div>
+        ),
+        preview: (
+          <div class="demo-refresh-shell">
+            <div class="demo-refresh-intro">
+              <strong>Pull from the top</strong>
+              <p>回到顶部后继续下拉，跨过阈值松手就会触发 refresh 回调。这个 demo 仍然保持局部容器滚动，而不是 document scroll。</p>
+            </div>
+            <RecycleScroller
+              ref={refreshScrollerRef}
+              class="demo-refresh-scroller"
+              items={refreshMessages.value}
+              itemSize={REFRESH_ITEM_SIZE}
+              itemKey="id"
+              buffer={180}
+              pullToRefresh={true}
+              onRefresh={refreshFeed}
+              onScrollEnd={handleRefreshScrollEnd}
+              style={{
+                height: `min(${DEMO_SCROLLER_MAX_HEIGHT}px, 60vh)`,
+              }}
+            >
+              {{
+                before: () => (
+                  <div class="demo-banner">
+                    {`Pull-to-refresh is enabled. Refresh pass #${refreshRevision.value}.`}
+                  </div>
                 ),
-              default: ({ item, index, active }: RecycleScrollerDefaultSlotProps) =>
-                h('article', { class: 'demo-refresh-row', 'data-active': String(active) }, [
-                  h('span', { class: 'demo-refresh-row__index' }, `#${index}`),
-                  h('div', { class: 'demo-refresh-row__content' }, [
-                    h('strong', getMessageTitle(item)),
-                    h('p', getMessagePreview(item)),
-                  ]),
-                  h('span', { class: 'demo-refresh-row__badge' }, refreshPending.value ? 'syncing' : 'fresh'),
-                ]),
-              after: () =>
-                h(
-                  'div',
-                  { class: 'demo-footer' },
-                  refreshLoadedCount.value >= messages.length
-                    ? '下拉刷新 demo 的全部数据都已就绪。'
-                    : `当前已加载 ${refreshLoadedCount.value}/${messages.length} 条，继续滑动会自动追加。`,
+                default: ({ item, index, active }: RecycleScrollerDefaultSlotProps) => (
+                  <article class="demo-refresh-row" data-active={String(active)}>
+                    <span class="demo-refresh-row__index">{`#${index}`}</span>
+                    <div class="demo-refresh-row__content">
+                      <strong>{getMessageTitle(item)}</strong>
+                      <p>{getMessagePreview(item)}</p>
+                    </div>
+                    <span class="demo-refresh-row__badge">{refreshPending.value ? 'syncing' : 'fresh'}</span>
+                  </article>
                 ),
-            },
-          ),
-        ]),
+                after: () => (
+                  <div class="demo-footer">
+                    {refreshLoadedCount.value >= messages.length
+                      ? '下拉刷新 demo 的全部数据都已就绪。'
+                      : `当前已加载 ${refreshLoadedCount.value}/${messages.length} 条，滚到底部会自动追加。`}
+                  </div>
+                ),
+              }}
+            </RecycleScroller>
+          </div>
+        ),
       })
 
     const renderDynamicDemo = () =>
@@ -602,86 +595,87 @@ const App = defineComponent({
             detail: dynamicRefreshPending.value ? '刷新中' : '顶部下拉可重新同步当前卡片集',
           },
         ],
-        controls: h('div', { class: 'demo-toolbar demo-toolbar--compact' }, [
-          h('label', { class: 'demo-field demo-field--narrow' }, [
-            h('span', '动态滚动索引'),
-            h('input', {
-              value: String(dynamicTarget.value),
-              min: '0',
-              type: 'number',
-              onInput: (event: Event) => handleTargetIndexInput(event, (value) => {
-                dynamicTarget.value = value
-              }),
-            }),
-          ]),
-          h(
-            'button',
-            {
-              class: 'demo-button',
-              type: 'button',
-              onClick: scrollDynamicTarget,
-            },
-            'dynamic scrollToItem()',
-          ),
-        ]),
-        preview: h(
-          DynamicScroller,
-          {
-            ref: dynamicScrollerRef,
-            class: 'demo-dynamic-scroller',
-            items: loadedDynamicStories.value,
-            minItemSize: DYNAMIC_MIN_ITEM_SIZE,
-            itemKey: 'id',
-            buffer: 160,
-            pullToRefresh: true,
-            onRefresh: refreshDynamicFeed,
-            onScroll: maybeLoadDynamicMore,
-            style: {
-              height: 'min(420px, 60vh)',
-            },
-          },
-          {
-            before: () =>
-              h(
-                'div',
-                { class: 'demo-banner' },
-                `Dynamic mode estimates with minItemSize=${DYNAMIC_MIN_ITEM_SIZE}px. Refresh pass #${dynamicRevision.value}.`,
+        controls: (
+          <div class="demo-toolbar demo-toolbar--compact">
+            <label class="demo-field demo-field--narrow">
+              <span>动态滚动索引</span>
+              <input
+                value={String(dynamicTarget.value)}
+                min="0"
+                type="number"
+                onInput={(event: Event) => handleTargetIndexInput(event, (value) => {
+                  dynamicTarget.value = value
+                })}
+              />
+            </label>
+            <button class="demo-button" type="button" onClick={scrollDynamicTarget}>
+              dynamic scrollToItem()
+            </button>
+          </div>
+        ),
+        preview: (
+          <DynamicScroller
+            ref={dynamicScrollerRef}
+            class="demo-dynamic-scroller"
+            items={loadedDynamicStories.value}
+            minItemSize={DYNAMIC_MIN_ITEM_SIZE}
+            itemKey="id"
+            buffer={160}
+            pullToRefresh={true}
+            onRefresh={refreshDynamicFeed}
+            onScrollEnd={handleDynamicScrollEnd}
+            style={{
+              height: `min(${DEMO_SCROLLER_MAX_HEIGHT}px, 60vh)`,
+            }}
+          >
+            {{
+              before: () => (
+                <div class="demo-banner">
+                  {`Dynamic mode estimates with minItemSize=${DYNAMIC_MIN_ITEM_SIZE}px. Refresh pass #${dynamicRevision.value}.`}
+                </div>
               ),
-            default: ({ item, index, active }: DynamicScrollerDefaultSlotProps) => {
-              const story = getStory(item)
+              default: ({ item, index, active }: DynamicScrollerDefaultSlotProps) => {
+                const story = getStory(item)
 
-              return h(
-                DynamicScrollerItem,
-                {
-                  item,
-                  index,
-                  active,
-                  sizeDependencies: [story.lines, dynamicRevision.value],
-                },
-                {
-                  default: () =>
-                    h('article', { class: 'demo-dynamic-row', 'data-tone': story.tone }, [
-                      h('span', { class: 'demo-dynamic-row__index' }, `#${index}`),
-                      h('div', { class: 'demo-dynamic-row__content' }, [
-                        h('strong', story.title),
-                        ...story.lines.map((line) => h('p', line)),
-                        dynamicRevision.value > 0 && index < 3
-                          ? h('p', { class: 'demo-dynamic-row__refresh-note' }, `Refresh pass ${dynamicRevision.value} updated this card.`)
-                          : null,
-                      ]),
-                    ]),
-                },
-              )
-            },
-            after: () =>
-              h(
-                'div',
-                { class: 'demo-footer' },
-                dynamicLoadedCount.value >= dynamicStories.length
-                  ? '动态高度 demo 已经加载全部卡片。'
-                  : `已加载 ${dynamicLoadedCount.value}/${dynamicStories.length} 张卡片，继续滑动会自动追加。`,
+                return (
+                  <DynamicScrollerItem
+                    item={item}
+                    index={index}
+                    active={active}
+                    sizeDependencies={[story.lines, dynamicRevision.value]}
+                  >
+                    {{
+                      default: () => (
+                        <article class="demo-dynamic-row" data-tone={story.tone}>
+                          <span class="demo-dynamic-row__index">{`#${index}`}</span>
+                          <div class="demo-dynamic-row__content">
+                            <strong>{story.title}</strong>
+                            {story.lines.map((line) => (
+                              <p key={line}>{line}</p>
+                            ))}
+                            {dynamicRevision.value > 0 && index < 3
+                              ? (
+                                  <p class="demo-dynamic-row__refresh-note">
+                                    {`Refresh pass ${dynamicRevision.value} updated this card.`}
+                                  </p>
+                                )
+                              : null}
+                          </div>
+                        </article>
+                      ),
+                    }}
+                  </DynamicScrollerItem>
+                )
+              },
+              after: () => (
+                <div class="demo-footer">
+                  {dynamicLoadedCount.value >= dynamicStories.length
+                    ? '动态高度 demo 已经加载全部卡片。'
+                    : `已加载 ${dynamicLoadedCount.value}/${dynamicStories.length} 张卡片，滚到底部会自动追加。`}
+                </div>
               ),
-          },
+            }}
+          </DynamicScroller>
         ),
       })
 
@@ -697,48 +691,46 @@ const App = defineComponent({
       return renderContainerDemo()
     }
 
-    return () =>
-      h('main', { class: 'demo-shell' }, [
-        h('section', { class: 'demo-header' }, [
-          h('p', { class: 'demo-eyebrow' }, 'Container-Only Virtual Scrolling'),
-          h('h1', '虚拟滚动容器演示'),
-          h(
-            'p',
-            { class: 'demo-lead' },
-            '当前示例已经收敛到 container-based virtual scrolling：顶部导航分别展示 fixed-height 基础模式、固定高度下拉刷新，以及 dynamic-size + pull-to-refresh。三个 demo 都支持接近底部时自动加载更多。',
-          ),
-        ]),
-        h('nav', { class: 'demo-nav', 'aria-label': 'Demo navigation' }, demoTabs.map((tab) =>
-          h(
-            'button',
-            {
-              key: tab.id,
-              type: 'button',
-              class: ['demo-nav__item', { 'is-active': activeDemo.value === tab.id }],
-              'aria-pressed': String(activeDemo.value === tab.id),
-              onClick: () => {
+    return () => (
+      <main class="demo-shell">
+        <section class="demo-header">
+          <p class="demo-eyebrow">Container-Only Virtual Scrolling</p>
+          <h1>虚拟滚动容器演示</h1>
+          <p class="demo-lead">
+            当前示例已经收敛到 container-based virtual scrolling：顶部导航分别展示 fixed-height 基础模式、固定高度下拉刷新，以及 dynamic-size + pull-to-refresh。三个
+            demo 都通过新的 scrollEnd 事件在滚到底部时自动加载更多。
+          </p>
+        </section>
+
+        <nav class="demo-nav" aria-label="Demo navigation">
+          {demoTabs.map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              class={['demo-nav__item', { 'is-active': activeDemo.value === tab.id }]}
+              aria-pressed={activeDemo.value === tab.id}
+              onClick={() => {
                 activeDemo.value = tab.id
-              },
-            },
-            [
-              h('span', { class: 'demo-nav__eyebrow' }, tab.label),
-              h('strong', { class: 'demo-nav__title' }, tab.title),
-              h('span', { class: 'demo-nav__hint' }, tab.hint),
-            ],
-          ),
-        )),
-        h('section', { class: 'demo-stage' }, [
-          h('div', { class: 'demo-stage__meta' }, [
-            h('p', { class: 'demo-stage__eyebrow' }, 'Navigation'),
-            h(
-              'p',
-              { class: 'demo-stage__lead' },
-              '顶部导航一次只展示一个 demo。容器基础模式用于观察 fixed-height 主路径；第二和第三个示例分别覆盖 RecycleScroller 与 DynamicScroller 的 pull-to-refresh 交互。',
-            ),
-          ]),
-          renderActiveDemo(),
-        ]),
-      ])
+              }}
+            >
+              <span class="demo-nav__eyebrow">{tab.label}</span>
+              <strong class="demo-nav__title">{tab.title}</strong>
+              <span class="demo-nav__hint">{tab.hint}</span>
+            </button>
+          ))}
+        </nav>
+
+        <section class="demo-stage">
+          <div class="demo-stage__meta">
+            <p class="demo-stage__eyebrow">Navigation</p>
+            <p class="demo-stage__lead">
+              顶部导航一次只展示一个 demo。容器基础模式用于观察 fixed-height 主路径；第二和第三个示例分别覆盖 RecycleScroller 与 DynamicScroller 的 pull-to-refresh 交互。
+            </p>
+          </div>
+          {renderActiveDemo()}
+        </section>
+      </main>
+    )
   },
 })
 
