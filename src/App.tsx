@@ -1,17 +1,6 @@
-import {
-  computed,
-  defineComponent,
-  nextTick,
-  ref,
-  watch,
-  type VNodeChild,
-} from 'vue'
+import { computed, defineComponent, nextTick, ref, watch, type VNodeChild } from 'vue'
 
-import {
-  DynamicScroller,
-  DynamicScrollerItem,
-  RecycleScroller,
-} from './index'
+import { DynamicScroller, DynamicScrollerItem, RecycleScroller } from './index'
 import type {
   DynamicScrollerDefaultSlotProps,
   DynamicScrollerExpose,
@@ -33,7 +22,16 @@ interface DynamicStory {
   tone: string
 }
 
-type DemoId = 'container' | 'refresh' | 'dynamic'
+interface SizeDependencyCard {
+  id: number
+  summary: string
+  title: string
+  tone: string
+  bullets: string[]
+}
+
+type DemoId = 'container' | 'refresh' | 'dynamic' | 'dependencies'
+type DependencyCopyMode = 'compact' | 'expanded'
 
 interface DemoTab {
   hint: string
@@ -58,8 +56,22 @@ const dynamicStories: DynamicStory[] = Array.from({ length: 180 }, (_, index) =>
   id: index + 1,
   title: `Variable card ${index + 1}`,
   tone: ['quiet', 'warm', 'urgent', 'playful'][index % 4],
-  lines: Array.from({ length: (index % 4) + 1 }, (_, lineIndex) =>
-    `Paragraph ${lineIndex + 1} for variable row ${index + 1}. This block intentionally changes length so the measured height differs across items.`,
+  lines: Array.from(
+    { length: (index % 4) + 1 },
+    (_, lineIndex) =>
+      `Paragraph ${lineIndex + 1} for variable row ${index + 1}. This block intentionally changes length so the measured height differs across items.`,
+  ),
+}))
+
+const sizeDependencyCards: SizeDependencyCard[] = Array.from({ length: 96 }, (_, index) => ({
+  id: index + 1,
+  title: `Dependency card ${index + 1}`,
+  summary: `保持 itemKey 不变，只切换外部 UI 状态，也会让第 ${index + 1} 张卡片的高度重新收敛。`,
+  tone: ['teal', 'amber', 'rose'][index % 3],
+  bullets: Array.from(
+    { length: (index % 3) + 2 },
+    (_, bulletIndex) =>
+      `附加说明 ${bulletIndex + 1}：这段文案由外部状态控制显示密度，用来制造稳定但可预测的高度差。`,
   ),
 }))
 
@@ -69,9 +81,12 @@ const REFRESH_INITIAL_COUNT = 72
 const REFRESH_BATCH_SIZE = 48
 const DYNAMIC_INITIAL_COUNT = 24
 const DYNAMIC_BATCH_SIZE = 18
+const SIZE_DEPENDENCY_INITIAL_COUNT = 18
+const SIZE_DEPENDENCY_BATCH_SIZE = 16
 const CONTAINER_ITEM_SIZE = 72
 const REFRESH_ITEM_SIZE = 68
 const DYNAMIC_MIN_ITEM_SIZE = 88
+const SIZE_DEPENDENCY_MIN_ITEM_SIZE = 96
 const DEMO_SCROLLER_MAX_HEIGHT = 420
 
 const demoTabs: DemoTab[] = [
@@ -93,6 +108,12 @@ const demoTabs: DemoTab[] = [
     title: '未知高度列表',
     hint: 'estimate first, reconcile later',
   },
+  {
+    id: 'dependencies',
+    label: 'Size Deps',
+    title: '依赖变化重测',
+    hint: 'sizeDependencies-driven remeasure',
+  },
 ]
 
 function wait(ms: number): Promise<void> {
@@ -109,20 +130,28 @@ const App = defineComponent({
     const containerLoadedCount = ref(Math.min(CONTAINER_INITIAL_COUNT, messages.length))
     const refreshLoadedCount = ref(Math.min(REFRESH_INITIAL_COUNT, messages.length))
     const dynamicLoadedCount = ref(Math.min(DYNAMIC_INITIAL_COUNT, dynamicStories.length))
+    const dependencyLoadedCount = ref(
+      Math.min(SIZE_DEPENDENCY_INITIAL_COUNT, sizeDependencyCards.length),
+    )
     const targetIndex = ref(32)
     const refreshTarget = ref(24)
     const dynamicTarget = ref(48)
+    const dependencyTarget = ref(18)
     const viewportHeight = ref(480)
     const refreshRevision = ref(0)
     const dynamicRevision = ref(0)
+    const dependencyMode = ref<DependencyCopyMode>('compact')
+    const dependencyExpandedIds = ref<number[]>([])
     const refreshPending = ref(false)
     const dynamicRefreshPending = ref(false)
     const containerScrollEndPending = ref(false)
     const refreshScrollEndPending = ref(false)
     const dynamicScrollEndPending = ref(false)
+    const dependencyScrollEndPending = ref(false)
     const scrollerRef = ref<RecycleScrollerExpose | null>(null)
     const refreshScrollerRef = ref<RecycleScrollerExpose | null>(null)
     const dynamicScrollerRef = ref<DynamicScrollerExpose | null>(null)
+    const dependencyScrollerRef = ref<DynamicScrollerExpose | null>(null)
 
     const loadedContainerMessages = computed(() => {
       return messages.slice(0, containerLoadedCount.value)
@@ -135,7 +164,9 @@ const App = defineComponent({
       }
 
       return loadedContainerMessages.value.filter((item) => {
-        return item.title.toLowerCase().includes(keyword) || item.preview.toLowerCase().includes(keyword)
+        return (
+          item.title.toLowerCase().includes(keyword) || item.preview.toLowerCase().includes(keyword)
+        )
       })
     })
 
@@ -145,6 +176,10 @@ const App = defineComponent({
 
     const loadedDynamicStories = computed(() => {
       return dynamicStories.slice(0, dynamicLoadedCount.value)
+    })
+
+    const loadedDependencyCards = computed(() => {
+      return sizeDependencyCards.slice(0, dependencyLoadedCount.value)
     })
 
     const extendLoadedCount = (
@@ -176,14 +211,20 @@ const App = defineComponent({
 
       const keyword = filter.value.trim()
       if (!keyword) {
-        while (containerLoadedCount.value <= index && containerLoadedCount.value < messages.length) {
+        while (
+          containerLoadedCount.value <= index &&
+          containerLoadedCount.value < messages.length
+        ) {
           extendLoadedCount(containerLoadedCount, messages.length, CONTAINER_BATCH_SIZE, index + 1)
           await nextTick()
         }
         return
       }
 
-      while (filteredMessages.value.length <= index && containerLoadedCount.value < messages.length) {
+      while (
+        filteredMessages.value.length <= index &&
+        containerLoadedCount.value < messages.length
+      ) {
         extendLoadedCount(containerLoadedCount, messages.length, CONTAINER_BATCH_SIZE)
         await nextTick()
       }
@@ -210,8 +251,7 @@ const App = defineComponent({
           extendLoadedCount(options.loadedCount, options.total, options.batchSize)
           await nextTick()
         } while (options.loadedCount.value < options.total && !options.canStopBackfill())
-      }
-      finally {
+      } finally {
         options.pending.value = false
       }
     }
@@ -219,7 +259,8 @@ const App = defineComponent({
     const handleContainerScrollEnd = (payload: ScrollBoundaryPayload) => {
       void backfillFromScrollEnd(payload, {
         batchSize: CONTAINER_BATCH_SIZE,
-        canStopBackfill: () => filteredMessages.value.length * CONTAINER_ITEM_SIZE > viewportHeight.value,
+        canStopBackfill: () =>
+          filteredMessages.value.length * CONTAINER_ITEM_SIZE > viewportHeight.value,
         loadedCount: containerLoadedCount,
         pending: containerScrollEndPending,
         total: messages.length,
@@ -229,7 +270,8 @@ const App = defineComponent({
     const handleRefreshScrollEnd = (payload: ScrollBoundaryPayload) => {
       void backfillFromScrollEnd(payload, {
         batchSize: REFRESH_BATCH_SIZE,
-        canStopBackfill: () => refreshMessages.value.length * REFRESH_ITEM_SIZE > DEMO_SCROLLER_MAX_HEIGHT,
+        canStopBackfill: () =>
+          refreshMessages.value.length * REFRESH_ITEM_SIZE > DEMO_SCROLLER_MAX_HEIGHT,
         loadedCount: refreshLoadedCount,
         pending: refreshScrollEndPending,
         total: messages.length,
@@ -239,10 +281,23 @@ const App = defineComponent({
     const handleDynamicScrollEnd = (payload: ScrollBoundaryPayload) => {
       void backfillFromScrollEnd(payload, {
         batchSize: DYNAMIC_BATCH_SIZE,
-        canStopBackfill: () => loadedDynamicStories.value.length * DYNAMIC_MIN_ITEM_SIZE > DEMO_SCROLLER_MAX_HEIGHT,
+        canStopBackfill: () =>
+          loadedDynamicStories.value.length * DYNAMIC_MIN_ITEM_SIZE > DEMO_SCROLLER_MAX_HEIGHT,
         loadedCount: dynamicLoadedCount,
         pending: dynamicScrollEndPending,
         total: dynamicStories.length,
+      })
+    }
+
+    const handleDependencyScrollEnd = (payload: ScrollBoundaryPayload) => {
+      void backfillFromScrollEnd(payload, {
+        batchSize: SIZE_DEPENDENCY_BATCH_SIZE,
+        canStopBackfill: () =>
+          loadedDependencyCards.value.length * SIZE_DEPENDENCY_MIN_ITEM_SIZE >
+          DEMO_SCROLLER_MAX_HEIGHT,
+        loadedCount: dependencyLoadedCount,
+        pending: dependencyScrollEndPending,
+        total: sizeDependencyCards.length,
       })
     }
 
@@ -262,7 +317,12 @@ const App = defineComponent({
         return
       }
 
-      await ensureLoadedIndex(refreshLoadedCount, messages.length, REFRESH_BATCH_SIZE, refreshTarget.value)
+      await ensureLoadedIndex(
+        refreshLoadedCount,
+        messages.length,
+        REFRESH_BATCH_SIZE,
+        refreshTarget.value,
+      )
       const safeIndex = Math.max(0, Math.min(refreshTarget.value, messages.length - 1))
       refreshScrollerRef.value?.scrollToItem(safeIndex)
     }
@@ -272,9 +332,32 @@ const App = defineComponent({
         return
       }
 
-      await ensureLoadedIndex(dynamicLoadedCount, dynamicStories.length, DYNAMIC_BATCH_SIZE, dynamicTarget.value)
+      await ensureLoadedIndex(
+        dynamicLoadedCount,
+        dynamicStories.length,
+        DYNAMIC_BATCH_SIZE,
+        dynamicTarget.value,
+      )
       const safeIndex = Math.max(0, Math.min(dynamicTarget.value, dynamicStories.length - 1))
       dynamicScrollerRef.value?.scrollToItem(safeIndex)
+    }
+
+    const scrollDependencyTarget = async (): Promise<void> => {
+      if (!sizeDependencyCards.length) {
+        return
+      }
+
+      await ensureLoadedIndex(
+        dependencyLoadedCount,
+        sizeDependencyCards.length,
+        SIZE_DEPENDENCY_BATCH_SIZE,
+        dependencyTarget.value,
+      )
+      const safeIndex = Math.max(
+        0,
+        Math.min(dependencyTarget.value, sizeDependencyCards.length - 1),
+      )
+      dependencyScrollerRef.value?.scrollToItem(safeIndex)
     }
 
     const refreshFeed = async (): Promise<void> => {
@@ -304,9 +387,7 @@ const App = defineComponent({
 
     const handleViewportHeightInput = (event: Event): void => {
       const { valueAsNumber } = event.target as HTMLInputElement
-      viewportHeight.value = Number.isFinite(valueAsNumber)
-        ? Math.max(180, valueAsNumber)
-        : 480
+      viewportHeight.value = Number.isFinite(valueAsNumber) ? Math.max(180, valueAsNumber) : 480
     }
 
     const getMessageTitle = (item: unknown): string => {
@@ -321,19 +402,38 @@ const App = defineComponent({
       return item as DynamicStory
     }
 
-    watch(
-      filter,
-      async (keyword) => {
-        if (!keyword.trim()) {
-          return
-        }
+    const getDependencyCard = (item: unknown): SizeDependencyCard => {
+      return item as SizeDependencyCard
+    }
 
-        while (filteredMessages.value.length === 0 && containerLoadedCount.value < messages.length) {
-          extendLoadedCount(containerLoadedCount, messages.length, CONTAINER_BATCH_SIZE)
-          await nextTick()
-        }
-      },
-    )
+    const isDependencyCardExpanded = (id: number): boolean => {
+      return dependencyExpandedIds.value.includes(id)
+    }
+
+    const toggleDependencyCard = (id: number): void => {
+      dependencyExpandedIds.value = isDependencyCardExpanded(id)
+        ? dependencyExpandedIds.value.filter((currentId) => currentId !== id)
+        : [...dependencyExpandedIds.value, id]
+    }
+
+    const collapseDependencyCards = (): void => {
+      dependencyExpandedIds.value = []
+    }
+
+    const toggleDependencyMode = (): void => {
+      dependencyMode.value = dependencyMode.value === 'compact' ? 'expanded' : 'compact'
+    }
+
+    watch(filter, async (keyword) => {
+      if (!keyword.trim()) {
+        return
+      }
+
+      while (filteredMessages.value.length === 0 && containerLoadedCount.value < messages.length) {
+        extendLoadedCount(containerLoadedCount, messages.length, CONTAINER_BATCH_SIZE)
+        await nextTick()
+      }
+    })
 
     const renderMetricGrid = (metrics: DemoMetric[]) => (
       <div class="demo-metric-grid">
@@ -383,7 +483,8 @@ const App = defineComponent({
       renderDemoScaffold({
         eyebrow: 'Container Mode',
         title: '固定高度容器滚动',
-        description: '基础 fixed-height container 路径保留了 before slot、buffer、itemKey 和 imperative scroll。列表滚到底部时会通过新的 scrollEnd 事件自动加载更多，方便观察 container-only 的窗口刷新。',
+        description:
+          '基础 fixed-height container 路径保留了 before slot、buffer、itemKey 和 imperative scroll。列表滚到底部时会通过新的 scrollEnd 事件自动加载更多，方便观察 container-only 的窗口刷新。',
         metrics: [
           {
             label: 'Loaded Data',
@@ -418,9 +519,11 @@ const App = defineComponent({
                 value={String(targetIndex.value)}
                 min="0"
                 type="number"
-                onInput={(event: Event) => handleTargetIndexInput(event, (value) => {
-                  targetIndex.value = value
-                })}
+                onInput={(event: Event) =>
+                  handleTargetIndexInput(event, (value) => {
+                    targetIndex.value = value
+                  })
+                }
               />
             </label>
             <label class="demo-field demo-field--narrow">
@@ -474,9 +577,7 @@ const App = defineComponent({
                     : `已加载 ${containerLoadedCount.value}/${messages.length} 条数据，滚到底部会自动追加下一批。`}
                 </div>
               ),
-              empty: () => (
-                <div class="demo-empty">No messages matched the current filter.</div>
-              ),
+              empty: () => <div class="demo-empty">No messages matched the current filter.</div>,
             }}
           </RecycleScroller>
         ),
@@ -486,7 +587,8 @@ const App = defineComponent({
       renderDemoScaffold({
         eyebrow: 'Pull To Refresh',
         title: '固定高度下拉刷新',
-        description: '这里保留容器滚动，但在顶部加入默认关闭、当前示例显式开启的 pull-to-refresh。列表滚到底部时会通过 scrollEnd 自动加载更多，刷新期间会把内部 refresh header 叠加到 before 占位里。',
+        description:
+          '这里保留容器滚动，但在顶部加入默认关闭、当前示例显式开启的 pull-to-refresh。列表滚到底部时会通过 scrollEnd 自动加载更多，刷新期间会把内部 refresh header 叠加到 before 占位里。',
         panelClass: 'demo-panel--refresh',
         previewClass: 'demo-preview--refresh',
         metrics: [
@@ -514,9 +616,11 @@ const App = defineComponent({
                 value={String(refreshTarget.value)}
                 min="0"
                 type="number"
-                onInput={(event: Event) => handleTargetIndexInput(event, (value) => {
-                  refreshTarget.value = value
-                })}
+                onInput={(event: Event) =>
+                  handleTargetIndexInput(event, (value) => {
+                    refreshTarget.value = value
+                  })
+                }
               />
             </label>
             <button class="demo-button" type="button" onClick={scrollRefreshTarget}>
@@ -528,7 +632,10 @@ const App = defineComponent({
           <div class="demo-refresh-shell">
             <div class="demo-refresh-intro">
               <strong>Pull from the top</strong>
-              <p>回到顶部后继续下拉，跨过阈值松手就会触发 refresh 回调。这个 demo 仍然保持局部容器滚动，而不是 document scroll。</p>
+              <p>
+                回到顶部后继续下拉，跨过阈值松手就会触发 refresh 回调。这个 demo
+                仍然保持局部容器滚动，而不是 document scroll。
+              </p>
             </div>
             <RecycleScroller
               ref={refreshScrollerRef}
@@ -557,7 +664,9 @@ const App = defineComponent({
                       <strong>{getMessageTitle(item)}</strong>
                       <p>{getMessagePreview(item)}</p>
                     </div>
-                    <span class="demo-refresh-row__badge">{refreshPending.value ? 'syncing' : 'fresh'}</span>
+                    <span class="demo-refresh-row__badge">
+                      {refreshPending.value ? 'syncing' : 'fresh'}
+                    </span>
                   </article>
                 ),
                 after: () => (
@@ -577,7 +686,8 @@ const App = defineComponent({
       renderDemoScaffold({
         eyebrow: 'Dynamic Size',
         title: '未知高度虚拟滚动',
-        description: 'DynamicScroller 继续用 minItemSize 做首屏估算，再通过 DynamicScrollerItem 的实际测量逐步收敛位置。这里也开启了 pull-to-refresh，用来验证动态高度和 refresh inset 可以一起工作。',
+        description:
+          'DynamicScroller 继续用 minItemSize 做首屏估算，再通过 DynamicScrollerItem 的实际测量逐步收敛位置。这里也开启了 pull-to-refresh，用来验证动态高度和 refresh inset 可以一起工作。',
         metrics: [
           {
             label: 'Loaded Cards',
@@ -603,9 +713,11 @@ const App = defineComponent({
                 value={String(dynamicTarget.value)}
                 min="0"
                 type="number"
-                onInput={(event: Event) => handleTargetIndexInput(event, (value) => {
-                  dynamicTarget.value = value
-                })}
+                onInput={(event: Event) =>
+                  handleTargetIndexInput(event, (value) => {
+                    dynamicTarget.value = value
+                  })
+                }
               />
             </label>
             <button class="demo-button" type="button" onClick={scrollDynamicTarget}>
@@ -653,13 +765,11 @@ const App = defineComponent({
                             {story.lines.map((line) => (
                               <p key={line}>{line}</p>
                             ))}
-                            {dynamicRevision.value > 0 && index < 3
-                              ? (
-                                  <p class="demo-dynamic-row__refresh-note">
-                                    {`Refresh pass ${dynamicRevision.value} updated this card.`}
-                                  </p>
-                                )
-                              : null}
+                            {dynamicRevision.value > 0 && index < 3 ? (
+                              <p class="demo-dynamic-row__refresh-note">
+                                {`Refresh pass ${dynamicRevision.value} updated this card.`}
+                              </p>
+                            ) : null}
                           </div>
                         </article>
                       ),
@@ -679,7 +789,167 @@ const App = defineComponent({
         ),
       })
 
+    const renderSizeDependenciesDemo = () =>
+      renderDemoScaffold({
+        eyebrow: 'sizeDependencies',
+        title: '依赖变化触发重测',
+        description:
+          '这个示例故意保持 itemKey 稳定，只通过外部 UI 状态改变内容密度与单行展开状态。DynamicScrollerItem 会依赖 sizeDependencies 重新测量当前卡片，让滚动位置继续收敛。',
+        metrics: [
+          {
+            label: 'Loaded Cards',
+            value: `${dependencyLoadedCount.value}/${sizeDependencyCards.length}`,
+            detail: '滚动到底部时会继续补齐更多依赖示例',
+          },
+          {
+            label: 'Detail Mode',
+            value: dependencyMode.value,
+            detail:
+              dependencyMode.value === 'compact'
+                ? '每条仅展示 1 条附加说明'
+                : '每条展示完整附加说明',
+          },
+          {
+            label: 'Expanded Rows',
+            value: String(dependencyExpandedIds.value.length),
+            detail: dependencyExpandedIds.value.length
+              ? '展开行会额外插入一段局部说明'
+              : '点击行内按钮可以只展开某一行',
+          },
+        ],
+        controls: (
+          <div class="demo-toolbar">
+            <label class="demo-field demo-field--narrow">
+              <span>跳转索引</span>
+              <input
+                value={String(dependencyTarget.value)}
+                min="0"
+                type="number"
+                onInput={(event: Event) =>
+                  handleTargetIndexInput(event, (value) => {
+                    dependencyTarget.value = value
+                  })
+                }
+              />
+            </label>
+            <button class="demo-button" type="button" onClick={scrollDependencyTarget}>
+              scrollToItem()
+            </button>
+            <button
+              class={['demo-button', 'demo-button--secondary']}
+              type="button"
+              onClick={toggleDependencyMode}
+            >
+              {dependencyMode.value === 'compact' ? '切到 expanded copy' : '切回 compact copy'}
+            </button>
+            <button
+              class={['demo-button', 'demo-button--secondary']}
+              type="button"
+              disabled={dependencyExpandedIds.value.length === 0}
+              onClick={collapseDependencyCards}
+            >
+              收起全部展开行
+            </button>
+          </div>
+        ),
+        preview: (
+          <DynamicScroller
+            ref={dependencyScrollerRef}
+            class="demo-dependency-scroller"
+            items={loadedDependencyCards.value}
+            minItemSize={SIZE_DEPENDENCY_MIN_ITEM_SIZE}
+            itemKey="id"
+            buffer={160}
+            onScrollEnd={handleDependencyScrollEnd}
+            style={{
+              height: `min(${DEMO_SCROLLER_MAX_HEIGHT}px, 60vh)`,
+            }}
+          >
+            {{
+              before: () => (
+                <div class="demo-banner">
+                  {`sizeDependencies=[expanded, detailMode]。当前模式 ${dependencyMode.value}，已展开 ${dependencyExpandedIds.value.length} 行。`}
+                </div>
+              ),
+              default: ({ item, index, active }: DynamicScrollerDefaultSlotProps) => {
+                const card = getDependencyCard(item)
+                const expanded = isDependencyCardExpanded(card.id)
+                const visibleBullets =
+                  dependencyMode.value === 'expanded' ? card.bullets : card.bullets.slice(0, 1)
+
+                return (
+                  <DynamicScrollerItem
+                    item={item}
+                    index={index}
+                    active={active}
+                    sizeDependencies={[expanded, dependencyMode.value]}
+                  >
+                    {{
+                      default: () => (
+                        <article
+                          class="demo-dependency-row"
+                          data-active={String(active)}
+                          data-tone={card.tone}
+                        >
+                          <div class="demo-dependency-row__meta">
+                            <span class="demo-dependency-row__index">{`#${index}`}</span>
+                            <span class="demo-dependency-row__key">{`id=${card.id}`}</span>
+                          </div>
+                          <div class="demo-dependency-row__content">
+                            <div class="demo-dependency-row__heading">
+                              <strong>{card.title}</strong>
+                              <button
+                                class="demo-inline-button"
+                                type="button"
+                                onClick={() => {
+                                  toggleDependencyCard(card.id)
+                                }}
+                              >
+                                {expanded ? '收起本行' : '展开本行'}
+                              </button>
+                            </div>
+                            <p class="demo-dependency-row__summary">{card.summary}</p>
+                            <div class="demo-dependency-row__chips">
+                              <span class="demo-dependency-chip">{dependencyMode.value}</span>
+                              <span class="demo-dependency-chip">
+                                {expanded ? 'expanded row' : 'collapsed row'}
+                              </span>
+                            </div>
+                            {visibleBullets.map((line) => (
+                              <p key={line} class="demo-dependency-row__bullet">
+                                {line}
+                              </p>
+                            ))}
+                            {expanded ? (
+                              <p class="demo-dependency-row__note">
+                                这段额外内容只受当前行的展开状态影响，不需要替换 item，也可以借助
+                                sizeDependencies 触发重新测量。
+                              </p>
+                            ) : null}
+                          </div>
+                        </article>
+                      ),
+                    }}
+                  </DynamicScrollerItem>
+                )
+              },
+              after: () => (
+                <div class="demo-footer">
+                  {dependencyLoadedCount.value >= sizeDependencyCards.length
+                    ? 'sizeDependencies demo 已经加载全部卡片。'
+                    : `已加载 ${dependencyLoadedCount.value}/${sizeDependencyCards.length} 张卡片，滚到底部会继续补齐。`}
+                </div>
+              ),
+            }}
+          </DynamicScroller>
+        ),
+      })
+
     const renderActiveDemo = () => {
+      if (activeDemo.value === 'dependencies') {
+        return renderSizeDependenciesDemo()
+      }
+
       if (activeDemo.value === 'refresh') {
         return renderRefreshDemo()
       }
@@ -697,8 +967,9 @@ const App = defineComponent({
           <p class="demo-eyebrow">Container-Only Virtual Scrolling</p>
           <h1>虚拟滚动容器演示</h1>
           <p class="demo-lead">
-            当前示例已经收敛到 container-based virtual scrolling：顶部导航分别展示 fixed-height 基础模式、固定高度下拉刷新，以及 dynamic-size + pull-to-refresh。三个
-            demo 都通过新的 scrollEnd 事件在滚到底部时自动加载更多。
+            当前示例已经收敛到 container-based virtual scrolling：顶部导航分别展示 fixed-height
+            基础模式、固定高度下拉刷新、dynamic-size + pull-to-refresh，以及专门演示
+            sizeDependencies 的依赖重测示例。四个 demo 都通过 scrollEnd 在滚到底部时自动加载更多。
           </p>
         </section>
 
@@ -724,7 +995,9 @@ const App = defineComponent({
           <div class="demo-stage__meta">
             <p class="demo-stage__eyebrow">Navigation</p>
             <p class="demo-stage__lead">
-              顶部导航一次只展示一个 demo。容器基础模式用于观察 fixed-height 主路径；第二和第三个示例分别覆盖 RecycleScroller 与 DynamicScroller 的 pull-to-refresh 交互。
+              顶部导航一次只展示一个 demo。容器基础模式用于观察 fixed-height
+              主路径；第二和第三个示例覆盖 pull-to-refresh；第四个示例专门演示外部状态如何通过
+              sizeDependencies 触发重新测量。
             </p>
           </div>
           {renderActiveDemo()}
