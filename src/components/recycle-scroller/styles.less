@@ -1,0 +1,91 @@
+.vue-recycle-scroller {
+  position: relative;
+
+  &.direction-vertical {
+    overflow-y: auto;
+    overflow-x: hidden;
+  }
+
+  &.direction-horizontal {
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+
+  &.has-pull-to-refresh {
+    overscroll-behavior-y: contain;
+  }
+}
+
+.vue-recycle-scroller__slot {
+  position: relative;
+}
+
+.vue-recycle-scroller__refresh {
+  overflow: hidden;
+  transition: height 180ms ease;
+}
+
+.vue-recycle-scroller.pull-state-pulling .vue-recycle-scroller__refresh,
+.vue-recycle-scroller.pull-state-armed .vue-recycle-scroller__refresh {
+  transition: none;
+}
+
+.vue-recycle-scroller__refresh-indicator {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100%;
+  background: transparent;
+  color: #c9c9c9;
+}
+
+.vue-recycle-scroller__refresh-spinner {
+  box-sizing: border-box;
+  width: 30px;
+  height: 30px;
+  border: 3px solid currentColor;
+  border-color: currentColor currentColor transparent transparent;
+  border-radius: 999px;
+  animation: vue-recycle-scroller-refresh-spin 0.8s linear infinite;
+}
+
+@keyframes vue-recycle-scroller-refresh-spin {
+  0% {
+    transform: rotate(0deg);
+  }
+
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+.vue-recycle-scroller__item-wrapper {
+  position: relative;
+  min-width: 100%;
+}
+
+.vue-recycle-scroller.direction-horizontal .vue-recycle-scroller__item-wrapper {
+  min-height: 100%;
+}
+
+.vue-recycle-scroller__item-view {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  will-change: transform;
+}
+
+.vue-recycle-scroller__item-content {
+  display: contents;
+}
+
+.vue-recycle-scroller.direction-horizontal .vue-recycle-scroller__item-view {
+  width: auto;
+  height: 100%;
+}
+
+.vue-dynamic-scroller-item {
+  display: block;
+  width: 100%;
+}
