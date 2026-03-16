@@ -1,5 +1,5 @@
 {
-  "name": "vue3-virtual-scroller",
+  "name": "vue-virtual-scroller-next",
   "version": "1.0.0",
   "type": "module",
   "packageManager": "pnpm@10.15.1",
