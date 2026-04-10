@@ -1,7 +1,6 @@
 import {
   computed,
   defineComponent,
-  h,
   mergeProps,
   provide,
   ref,
@@ -275,81 +274,67 @@ const DynamicScroller = defineComponent({
         onTouchstart: pullToRefreshEnabled.value ? handleTouchstart : undefined,
       })
 
-      const itemViews = visibleViews.value.map((view) => {
-        const viewChildren = (h as unknown as (
-          type: string,
-          props: Record<string, unknown>,
-          children: unknown,
-        ) => ReturnType<typeof h>)(
-          'div',
-          {
-            key: resolveItemKey(view.item, view.index),
-            class: 'vue-recycle-scroller__item-content',
-          },
-          renderItemView({
-            item: view.item,
-            index: view.index,
-            active: view.active,
-          }),
-        )
+      const itemViews = visibleViews.value.map((view) => (
+        <div
+          key={view.viewId}
+          class={['vue-recycle-scroller__item-view', { active: view.active }]}
+          style={{
+            ...resolveItemStyle(props.direction, view.position, 0),
+            height: 'auto',
+          }}
+        >
+          <div
+            key={resolveItemKey(view.item, view.index)}
+            class="vue-recycle-scroller__item-content"
+          >
+            {renderItemView({
+              item: view.item,
+              index: view.index,
+              active: view.active,
+            })}
+          </div>
+        </div>
+      ))
 
-        return h(
-          'div',
-          {
-            key: view.viewId,
-            class: ['vue-recycle-scroller__item-view', { active: view.active }],
-            style: {
-              ...resolveItemStyle(props.direction, view.position, 0),
-              height: 'auto',
-            },
-          } as Record<string, unknown>,
-          viewChildren as never,
-        )
-      })
-
-      const children = [
-        shouldRenderBefore.value
-          ? h('div', { ref: beforeRef, class: 'vue-recycle-scroller__slot' }, [
-              slots.before?.(),
-              pullToRefreshEnabled.value
-                ? h(
-                    'div',
-                    {
-                      class: ['vue-recycle-scroller__refresh', `is-${refreshState.value}`],
-                      'data-state': refreshState.value,
-                      style: {
-                        height: `${refreshInset.value}px`,
-                      },
-                    },
-                    slots.refresh?.(refreshSlotProps.value)
-                    ?? h(
-                      'div',
-                      {
-                        class: 'vue-recycle-scroller__refresh-indicator',
-                        'aria-label': refreshLabel.value,
-                        'aria-live': 'polite',
-                        role: 'status',
-                      },
-                      h('span', { class: 'vue-recycle-scroller__refresh-spinner', 'aria-hidden': 'true' }),
-                    ),
-                  )
-                : null,
-            ])
-          : null,
-        h(
-          'div',
-          { class: 'vue-recycle-scroller__item-wrapper', style: wrapperStyle.value },
-          [
-            ...itemViews,
-            props.items.length === 0 ? slots.empty?.() : null,
-          ],
-        ),
-        slots.after
-          ? h('div', { class: 'vue-recycle-scroller__slot' }, slots.after())
-          : null,
-      ]
-
-      return h('div', rootProps, children)
+      return (
+        <div {...(rootProps as Record<string, unknown>)}>
+          {shouldRenderBefore.value ? (
+            <div ref={beforeRef} class="vue-recycle-scroller__slot">
+              {slots.before?.()}
+              {pullToRefreshEnabled.value ? (
+                <div
+                  class={['vue-recycle-scroller__refresh', `is-${refreshState.value}`]}
+                  data-state={refreshState.value}
+                  style={{
+                    height: `${refreshInset.value}px`,
+                  }}
+                >
+                  {slots.refresh?.(refreshSlotProps.value) ?? (
+                    <div
+                      class="vue-recycle-scroller__refresh-indicator"
+                      aria-label={refreshLabel.value}
+                      aria-live="polite"
+                      role="status"
+                    >
+                      <span
+                        class="vue-recycle-scroller__refresh-spinner"
+                        aria-hidden="true"
+                      />
+                    </div>
+                  )}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+          <div class="vue-recycle-scroller__item-wrapper" style={wrapperStyle.value}>
+            {itemViews}
+            {props.items.length === 0 ? slots.empty?.() : null}
+          </div>
+          {slots.after ? (
+            <div class="vue-recycle-scroller__slot">{slots.after()}</div>
+          ) : null}
+        </div>
+      )
     }
   },
 })
