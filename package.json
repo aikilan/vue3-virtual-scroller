@@ -1,6 +1,6 @@
 {
   "name": "vue-virtual-scroller-next",
-  "version": "1.6.1",
+  "version": "1.6.2",
   "type": "module",
   "packageManager": "pnpm@10.15.1",
   "main": "./dist/index.cjs",
