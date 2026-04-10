@@ -18,6 +18,7 @@ export function resolveScrollBoundaryPayload(
 export function resolveVerticalScrollBoundaryState(
   element: HTMLElement | undefined,
   scroll: ScrollState,
+  contentSize = element?.scrollHeight ?? 0,
 ): {
   topReached: boolean
   endReached: boolean
@@ -29,7 +30,7 @@ export function resolveVerticalScrollBoundaryState(
     }
   }
 
-  const remainingDistance = Math.max(0, element.scrollHeight - element.clientHeight - scroll.start)
+  const remainingDistance = Math.max(0, contentSize - element.clientHeight - scroll.start)
 
   return {
     topReached: scroll.start <= SCROLL_BOUNDARY_TOLERANCE,

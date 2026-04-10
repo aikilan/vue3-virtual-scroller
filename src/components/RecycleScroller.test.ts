@@ -405,6 +405,41 @@ describe('RecycleScroller', () => {
     })
   })
 
+  it('treats the after slot as outside the scrollEnd content boundary', async () => {
+    const wrapper = trackWrapper(mount(RecycleScroller, {
+      props: {
+        items: createItems(6),
+        itemSize: 30,
+        buffer: 0,
+      },
+      slots: {
+        default: ({ item, index }: RowSlotProps) =>
+          h('div', { class: 'row' }, `${(item as { label: string }).label}|${index}`),
+        after: () => h('div', { class: 'after-slot' }, 'after'),
+      },
+    }))
+
+    const { element } = await syncScroller(wrapper, {
+      clientHeight: 90,
+      scrollHeight: 300,
+      scrollTop: 0,
+    })
+
+    expect(getLastScrollBoundaryPayload(wrapper, 'scrollEnd')).toEqual({
+      reached: false,
+      scroll: { start: 0, end: 90 },
+    })
+
+    element.scrollTop = 89
+    await wrapper.trigger('scroll')
+    await flushAnimationFrame()
+
+    expect(getLastScrollBoundaryPayload(wrapper, 'scrollEnd')).toEqual({
+      reached: true,
+      scroll: { start: 89, end: 179 },
+    })
+  })
+
   it('refreshes the render window after small boundary-crossing scroll deltas', async () => {
     const wrapper = trackWrapper(mount(RecycleScroller, {
       props: {

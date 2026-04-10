@@ -411,6 +411,31 @@ describe('DynamicScroller', () => {
     })
   })
 
+  it('treats the after slot as outside the dynamic scrollEnd content boundary', async () => {
+    const wrapper = trackWrapper(mount(DynamicScroller, {
+      props: {
+        items: createStories(2),
+        minItemSize: 50,
+        buffer: 0,
+      },
+      slots: {
+        default: renderDynamicSlot,
+        after: () => <div class="after-slot">after</div>,
+      },
+    }))
+
+    await syncDynamicScroller(wrapper, {
+      clientHeight: 100,
+      scrollHeight: 220,
+      scrollTop: 0,
+    })
+
+    expect(getLastScrollBoundaryPayload(wrapper, 'scrollEnd')).toEqual({
+      reached: true,
+      scroll: { start: 0, end: 100 },
+    })
+  })
+
   it('rebuilds layout state after in-place logical reordering', async () => {
     const items = ref(createStories(3))
 

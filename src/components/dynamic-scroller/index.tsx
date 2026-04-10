@@ -226,6 +226,7 @@ const DynamicScroller = defineComponent({
       const { topReached, endReached } = resolveVerticalScrollBoundaryState(
         containerRef.value,
         scroll,
+        measurement.value.beforeSize + totalSize.value,
       )
 
       if (lastScrollTopReached.value !== topReached) {
