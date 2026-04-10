@@ -17,7 +17,11 @@ import type {
 } from '../types/recycle-scroller'
 
 import { createRecycleScrollerUpdateScheduler } from './recycle-scroller/controller'
-import { resolveRecycleScrollerItemKey } from './recycle-scroller/key'
+import {
+  resolveRecycleScrollerItemKey,
+  resolveRecycleScrollerItemKeys,
+  warnDuplicateRecycleScrollerItemKeys,
+} from './recycle-scroller/key'
 import {
   observeRecycleScrollerMeasurements,
   readRecycleScrollerMeasurement,
@@ -140,33 +144,43 @@ export function useDynamicScroller(
   let stopObserving: () => void = () => undefined
   let mounted = false
   let currentRange: DynamicSizeRange | null = null
+  let currentEffectiveKeys: RecycleScrollerItemKeyValue[] = []
   let layoutStructureDirty = true
   let pendingScrollTarget: { index: number } | null = null
+  let pendingDuplicateKeyWarning = true
   let visibleEntriesDirty = true
 
   function readMeasurement(): RecycleScrollerMeasurementState {
-    measurement.value = readRecycleScrollerMeasurement(
+    return readRecycleScrollerMeasurement(
       containerRef.value,
       beforeRef.value,
       options.direction,
     )
-
-    return measurement.value
   }
 
   function resolveItemKey(item: unknown, index: number): RecycleScrollerItemKeyValue {
-    return resolveRecycleScrollerItemKey(item, index, options.itemKey)
+    return currentEffectiveKeys[index] ?? resolveRecycleScrollerItemKey(item, index, options.itemKey)
+  }
+
+  function resolveMeasurementItemKey(item: unknown, index: number): RecycleScrollerItemKeyValue {
+    if (options.items[index] === item) {
+      return resolveRecycleScrollerItemKeys(options.items, options.itemKey).effectiveKeys[index]
+        ?? resolveItemKey(item, index)
+    }
+
+    return resolveItemKey(item, index)
   }
 
   function resolveLayout() {
     if (layoutStructureDirty) {
-      layoutStructureDirty = false
-      return syncDynamicSizeLayoutCache(layoutCache, {
+      const layout = syncDynamicSizeLayoutCache(layoutCache, {
         items: options.items,
         itemKey: options.itemKey,
         minItemSize: options.minItemSize,
         sizeMap,
       })
+      layoutStructureDirty = false
+      return layout
     }
 
     return recomputeDynamicSizeLayoutCache(layoutCache)
@@ -212,6 +226,13 @@ export function useDynamicScroller(
   function commit(reason: RecycleScrollerUpdateReason): void {
     assertValidMinItemSize(options.minItemSize)
     const nextMeasurement = readMeasurement()
+
+    if (pendingDuplicateKeyWarning) {
+      const resolvedItemKeys = resolveRecycleScrollerItemKeys(options.items, options.itemKey)
+      warnDuplicateRecycleScrollerItemKeys('DynamicScroller', resolvedItemKeys.duplicateCounts)
+      pendingDuplicateKeyWarning = false
+    }
+
     const layout = resolveLayout()
     const firstMeasurementChangeIndex = layout.firstMeasurementChangeIndex
     const range = resolveDynamicSizeRangeFromCache({
@@ -239,7 +260,7 @@ export function useDynamicScroller(
       && !renderedPositionsAffected
     )
 
-    totalSize.value = layout.totalSize
+    let nextVisibleEntriesDirty = visibleEntriesDirty
 
     if (!canSkipVisibleCommit) {
       const entries = []
@@ -262,9 +283,13 @@ export function useDynamicScroller(
         recycledViewLimit: (range.endIndex - range.startIndex)
           + resolveViewportItemCapacity(nextMeasurement.viewportSize, options.minItemSize),
       })
-      visibleEntriesDirty = false
+      nextVisibleEntriesDirty = false
     }
 
+    measurement.value = nextMeasurement
+    totalSize.value = layout.totalSize
+    currentEffectiveKeys = layout.keys.slice()
+    visibleEntriesDirty = nextVisibleEntriesDirty
     layout.firstMeasurementChangeIndex = null
     currentRange = range
     reconcilePendingScrollTarget(layout, nextMeasurement, range)
@@ -332,7 +357,7 @@ export function useDynamicScroller(
       return
     }
 
-    const key = resolveItemKey(item, index)
+    const key = resolveMeasurementItemKey(item, index)
     const measurementResult = updateDynamicSizeMeasurement(
       layoutCache,
       sizeMap,
@@ -405,11 +430,12 @@ export function useDynamicScroller(
   )
 
   watch(
-    () => options.items.map((item, index) => resolveItemKey(item, index)),
+    () => resolveRecycleScrollerItemKeys(options.items, options.itemKey).effectiveKeys,
     (nextKeys, previousKeys) => {
       if (haveDynamicItemKeysChanged(previousKeys ?? [], nextKeys)) {
         layoutStructureDirty = true
         visibleEntriesDirty = true
+        pendingDuplicateKeyWarning = true
       }
       scheduleUpdate('items')
     },
@@ -417,9 +443,12 @@ export function useDynamicScroller(
 
   watch(
     () => [options.minItemSize, options.itemKey] as const,
-    () => {
+    ([, nextItemKey], [, previousItemKey]) => {
       layoutStructureDirty = true
       visibleEntriesDirty = true
+      if (nextItemKey !== previousItemKey) {
+        pendingDuplicateKeyWarning = true
+      }
       scheduleUpdate('props')
     },
   )

@@ -285,7 +285,7 @@ const DynamicScroller = defineComponent({
           }}
         >
           <div
-            key={resolveItemKey(view.item, view.index)}
+            key={view.key}
             class="vue-recycle-scroller__item-content"
           >
             {renderItemView({

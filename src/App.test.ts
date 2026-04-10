@@ -24,7 +24,7 @@ describe('App', () => {
     const wrapper = mount(App)
 
     expect(wrapper.get('h1').text()).toBe('虚拟滚动容器演示')
-    expect(wrapper.findAll('.demo-nav__item')).toHaveLength(3)
+    expect(wrapper.findAll('.demo-nav__item')).toHaveLength(5)
     expect(wrapper.find('.demo-scroller').exists()).toBe(true)
     expect(wrapper.find('.demo-refresh-scroller').exists()).toBe(false)
     expect(wrapper.text()).toContain('scrollToItem()')
@@ -40,6 +40,10 @@ describe('App', () => {
     await wrapper.findAll('.demo-nav__item')[2].trigger('click')
     expect(wrapper.find('.demo-dynamic-scroller').exists()).toBe(true)
     expect(wrapper.find('.demo-refresh-scroller').exists()).toBe(false)
+
+    await wrapper.findAll('.demo-nav__item')[4].trigger('click')
+    expect(wrapper.find('.demo-duplicate-scroller').exists()).toBe(true)
+    expect(wrapper.text()).toContain('重复 key 都被内部兼容了')
   })
 
   it('shows empty feedback when the filter removes all messages', async () => {

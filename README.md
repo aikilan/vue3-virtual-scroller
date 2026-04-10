@@ -132,7 +132,7 @@ Detailed API notes: [docs/api.md](./docs/api.md).
 - `pullToRefreshHold`: header height kept during refresh, default `56`
 - `onRefresh`: callback for pull-to-refresh; required when `pullToRefresh` is enabled
 - `refresh` slot: custom refresh content with `{ state, inset, label, threshold, hold }`
-- `scrollTop` / `scrollEnd`: emitted in `vertical` mode when top/bottom reached-state changes; payload is `{ reached, scroll }`, useful for reset/load-more flows
+- `scrollTop` / `scrollEnd`: emitted in `vertical` mode when top/bottom reached-state changes after a successful internal window update; payload is `{ reached, scroll }`, useful for reset/load-more flows
 - `scrollPosition`: emitted when the first or last **actually visible** item changes; payload is `{ first, last }` with `{ index, item } | null`
 - Fixed-size window updates are range-based. Even small scroll deltas refresh the window as soon as an item boundary is crossed.
 
@@ -162,7 +162,7 @@ Detailed API notes: [docs/api.md](./docs/api.md).
 - `RecycleScroller` supports fixed-size lists; `DynamicScroller` supports vertical variable-height lists only
 - `pullToRefresh` is disabled by default, works only with `direction="vertical"`, and requires `onRefresh`
 - The container must have an explicit main-axis size and scrolling context, for example `height + overflow: auto`
-- `itemKey` must stay stable; duplicate keys in the visible fixed-size path throw, and dynamic-size rejects duplicate-key lists
+- `itemKey` must stay stable; when duplicates appear, both scrollers synthesize internal `_n` suffixes to keep keys unique and log a development warning
 - The `before` slot affects visible-range calculation, `scrollToItem()`, and pull-to-refresh inset. When pull-to-refresh is enabled, the refresh header is rendered below the `before` slot. The `after` slot only participates in normal layout.
 - `DynamicScroller.scrollToItem()` is estimate-first and convergence-based, not instantly exact
 

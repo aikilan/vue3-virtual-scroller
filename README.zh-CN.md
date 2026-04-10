@@ -132,7 +132,7 @@ export default defineComponent({
 - `pullToRefreshHold`：刷新中的头部保持高度，默认 `56`。
 - `onRefresh`：下拉刷新回调；启用 `pullToRefresh` 时必填。
 - `refresh` slot：自定义刷新区内容，可拿到 `{ state, inset, label, threshold, hold }`。
-- `scrollTop` / `scrollEnd`：仅在 `vertical` 模式下触发，当顶部/底部的 reached 状态变化时发出；载荷是 `{ reached, scroll }`，适合做重置或加载更多。
+- `scrollTop` / `scrollEnd`：仅在 `vertical` 模式下触发，且只有内部窗口更新成功后才会根据顶部/底部的 reached 状态变化发出；载荷是 `{ reached, scroll }`，适合做重置或加载更多。
 - `scrollPosition`：当首个或末个**真实可见**元素变化时触发，载荷是 `{ first, last }`，其中每一项都是 `{ index, item } | null`。
 - fixed-height 窗口更新基于 range 变化判定，小步滚动只要跨过 item 边界，就会立即刷新渲染窗口。
 
@@ -162,7 +162,7 @@ export default defineComponent({
 - `RecycleScroller` 支持固定高度，`DynamicScroller` 支持纵向未知高度；dynamic-size 首版不支持 horizontal。
 - `pullToRefresh` 默认关闭，仅支持 `direction="vertical"`，并且启用时必须提供 `onRefresh`。
 - 组件需要明确的主轴尺寸和滚动上下文，例如 `height + overflow: auto`。
-- `itemKey` 必须稳定；fixed-height 可见窗口内重复 key 会报错，dynamic-size 会拒绝重复 key 列表。
+- `itemKey` 必须稳定；如果出现重复值，两个 scroller 都会在内部补 `_n` 后缀保证唯一，并在开发环境输出告警。
 - `before` slot 会影响可见区、`scrollToItem()` 和 pull-to-refresh 的有效占位；启用下拉刷新时，refresh header 会渲染在 `before` slot 的下方；`after` slot 只参与自然布局。
 - `DynamicScroller` 的 `scrollToItem()` 是“先估算、后收敛”，不是一次性精准定位；只有新的实际测量到达后，目标位置才会继续向真实 offset 收敛。
 

@@ -22,6 +22,14 @@ interface DynamicStory {
   tone: string
 }
 
+interface DuplicateKeyStory {
+  id: string
+  lines: string[]
+  slot: string
+  title: string
+  tone: string
+}
+
 interface SizeDependencyCard {
   id: number
   summary: string
@@ -30,7 +38,7 @@ interface SizeDependencyCard {
   bullets: string[]
 }
 
-type DemoId = 'container' | 'refresh' | 'dynamic' | 'dependencies'
+type DemoId = 'container' | 'refresh' | 'dynamic' | 'dependencies' | 'duplicates'
 type DependencyCopyMode = 'compact' | 'expanded'
 
 interface DemoTab {
@@ -60,6 +68,18 @@ const dynamicStories: DynamicStory[] = Array.from({ length: 180 }, (_, index) =>
     { length: (index % 4) + 1 },
     (_, lineIndex) =>
       `Paragraph ${lineIndex + 1} for variable row ${index + 1}. This block intentionally changes length so the measured height differs across items.`,
+  ),
+}))
+
+const duplicateKeyStories: DuplicateKeyStory[] = Array.from({ length: 18 }, (_, index) => ({
+  id: `dup-${Math.floor(index / 3) + 1}`,
+  slot: `copy-${(index % 3) + 1}`,
+  title: `Duplicate key card ${index + 1}`,
+  tone: ['warm', 'urgent', 'quiet'][index % 3],
+  lines: Array.from(
+    { length: (index % 4) + 1 },
+    (_, lineIndex) =>
+      `这张卡片和另外两张卡片共享 id=${`dup-${Math.floor(index / 3) + 1}`}，第 ${lineIndex + 1} 段文案只用来制造稳定的动态高度差。`,
   ),
 }))
 
@@ -114,6 +134,12 @@ const demoTabs: DemoTab[] = [
     title: '依赖变化重测',
     hint: 'sizeDependencies-driven remeasure',
   },
+  {
+    id: 'duplicates',
+    label: 'Duplicate Keys',
+    title: '重复 Key 兼容',
+    hint: 'same logical id, stable internal keys',
+  },
 ]
 
 function wait(ms: number): Promise<void> {
@@ -137,6 +163,7 @@ const App = defineComponent({
     const refreshTarget = ref(24)
     const dynamicTarget = ref(48)
     const dependencyTarget = ref(18)
+    const duplicateTarget = ref(9)
     const viewportHeight = ref(480)
     const refreshRevision = ref(0)
     const dynamicRevision = ref(0)
@@ -152,6 +179,7 @@ const App = defineComponent({
     const refreshScrollerRef = ref<RecycleScrollerExpose | null>(null)
     const dynamicScrollerRef = ref<DynamicScrollerExpose | null>(null)
     const dependencyScrollerRef = ref<DynamicScrollerExpose | null>(null)
+    const duplicateScrollerRef = ref<DynamicScrollerExpose | null>(null)
 
     const loadedContainerMessages = computed(() => {
       return messages.slice(0, containerLoadedCount.value)
@@ -360,6 +388,15 @@ const App = defineComponent({
       dependencyScrollerRef.value?.scrollToItem(safeIndex)
     }
 
+    const scrollDuplicateTarget = (): void => {
+      if (!duplicateKeyStories.length) {
+        return
+      }
+
+      const safeIndex = Math.max(0, Math.min(duplicateTarget.value, duplicateKeyStories.length - 1))
+      duplicateScrollerRef.value?.scrollToItem(safeIndex)
+    }
+
     const refreshFeed = async (): Promise<void> => {
       refreshPending.value = true
       await wait(320)
@@ -400,6 +437,10 @@ const App = defineComponent({
 
     const getStory = (item: unknown): DynamicStory => {
       return item as DynamicStory
+    }
+
+    const getDuplicateStory = (item: unknown): DuplicateKeyStory => {
+      return item as DuplicateKeyStory
     }
 
     const getDependencyCard = (item: unknown): SizeDependencyCard => {
@@ -945,7 +986,109 @@ const App = defineComponent({
         ),
       })
 
+    const renderDuplicateKeyDemo = () =>
+      renderDemoScaffold({
+        eyebrow: 'Duplicate Keys',
+        title: '重复 itemKey 兼容演示',
+        description:
+          '这个示例故意让三张卡片共用同一个 `id`，继续使用 `itemKey="id"`。组件内部会自动补 `_n` 后缀保证唯一，列表仍然可以正常测量、滚动和 scrollToItem。',
+        metrics: [
+          {
+            label: 'Rows',
+            value: String(duplicateKeyStories.length),
+            detail: '总共 18 张卡片，每 3 张共享同一个逻辑 id',
+          },
+          {
+            label: 'Logical IDs',
+            value: String(new Set(duplicateKeyStories.map((item) => item.id)).size),
+            detail: '只保留 6 个逻辑 id，故意制造重复 key',
+          },
+          {
+            label: 'itemKey',
+            value: '"id"',
+            detail: '内部会为重复项补 `_n` 后缀，但不会改动 slot 里的 item 数据',
+          },
+        ],
+        controls: (
+          <div class="demo-toolbar demo-toolbar--compact">
+            <label class="demo-field demo-field--narrow">
+              <span>跳转索引</span>
+              <input
+                value={String(duplicateTarget.value)}
+                min="0"
+                type="number"
+                onInput={(event: Event) =>
+                  handleTargetIndexInput(event, (value) => {
+                    duplicateTarget.value = value
+                  })
+                }
+              />
+            </label>
+            <button class="demo-button" type="button" onClick={scrollDuplicateTarget}>
+              duplicate scrollToItem()
+            </button>
+          </div>
+        ),
+        preview: (
+          <DynamicScroller
+            ref={duplicateScrollerRef}
+            class={['demo-dynamic-scroller', 'demo-duplicate-scroller']}
+            items={duplicateKeyStories}
+            minItemSize={DYNAMIC_MIN_ITEM_SIZE}
+            itemKey="id"
+            buffer={160}
+            style={{
+              height: `min(${DEMO_SCROLLER_MAX_HEIGHT}px, 60vh)`,
+            }}
+          >
+            {{
+              before: () => (
+                <div class="demo-banner">
+                  每 3 行共享同一个逻辑 id。这里演示的是重复 `itemKey` 兼容，不是业务数据去重。
+                </div>
+              ),
+              default: ({ item, index, active }: DynamicScrollerDefaultSlotProps) => {
+                const story = getDuplicateStory(item)
+
+                return (
+                  <DynamicScrollerItem
+                    item={item}
+                    index={index}
+                    active={active}
+                    sizeDependencies={[story.slot, story.lines.length]}
+                  >
+                    {{
+                      default: () => (
+                        <article class="demo-dynamic-row" data-tone={story.tone}>
+                          <span class="demo-dynamic-row__index">{`#${index}`}</span>
+                          <div class="demo-dynamic-row__content">
+                            <strong>{story.title}</strong>
+                            <p class="demo-dynamic-row__refresh-note">{`logical id=${story.id} · ${story.slot}`}</p>
+                            {story.lines.map((line) => (
+                              <p key={`${story.slot}-${line}`}>{line}</p>
+                            ))}
+                          </div>
+                        </article>
+                      ),
+                    }}
+                  </DynamicScrollerItem>
+                )
+              },
+              after: () => (
+                <div class="demo-footer">
+                  这里所有重复 key 都被内部兼容了；如果你在开发环境打开控制台，会看到对应的重复 key 告警。
+                </div>
+              ),
+            }}
+          </DynamicScroller>
+        ),
+      })
+
     const renderActiveDemo = () => {
+      if (activeDemo.value === 'duplicates') {
+        return renderDuplicateKeyDemo()
+      }
+
       if (activeDemo.value === 'dependencies') {
         return renderSizeDependenciesDemo()
       }
@@ -968,8 +1111,9 @@ const App = defineComponent({
           <h1>虚拟滚动容器演示</h1>
           <p class="demo-lead">
             当前示例已经收敛到 container-based virtual scrolling：顶部导航分别展示 fixed-height
-            基础模式、固定高度下拉刷新、dynamic-size + pull-to-refresh，以及专门演示
-            sizeDependencies 的依赖重测示例。四个 demo 都通过 scrollEnd 在滚到底部时自动加载更多。
+            基础模式、固定高度下拉刷新、dynamic-size + pull-to-refresh、专门演示
+            sizeDependencies 的依赖重测，以及重复 key 兼容示例。前四个 demo 都通过 scrollEnd
+            在滚到底部时自动加载更多。
           </p>
         </section>
 
@@ -997,7 +1141,7 @@ const App = defineComponent({
             <p class="demo-stage__lead">
               顶部导航一次只展示一个 demo。容器基础模式用于观察 fixed-height
               主路径；第二和第三个示例覆盖 pull-to-refresh；第四个示例专门演示外部状态如何通过
-              sizeDependencies 触发重新测量。
+              sizeDependencies 触发重新测量；第五个示例故意传入重复 itemKey，验证内部兼容路径。
             </p>
           </div>
           {renderActiveDemo()}

@@ -49,7 +49,7 @@ import {
 
 - 类型：`string | ((item: unknown, index: number) => string | number)`
 - 默认值：`'id'`
-- 说明：逻辑 item 的稳定 key。
+- 说明：逻辑 item 的稳定 key。若列表里出现重复值，组件会在内部补 `_n` 后缀保证唯一，并在开发环境输出告警。
 
 #### `buffer`
 
@@ -118,14 +118,14 @@ const handleScrollTop = (payload: ScrollBoundaryPayload) => {
 
 #### `scrollEnd`
 
-- 触发时机：仅 `direction='vertical'` 时有效；初始 ready 后会先发一次当前状态，之后只有底部 reached 状态发生变化时才会再次触发。
+- 触发时机：仅 `direction='vertical'` 时有效；初始 ready 后会先发一次当前状态，之后只有底部 reached 状态在成功 commit 后发生变化时才会再次触发。
 - 载荷结构与 `scrollTop` 相同，可直接用于“滚到底加载更多”判断。
 - 模板监听：`@scroll-end="handleScrollEnd"`
 - TSX 监听：`onScrollEnd={handleScrollEnd}`
 
 #### `scrollPosition`
 
-- 触发时机：首个或末个**真实可见**元素发生变化时；来源可以是滚动、resize、数据变更、`before` 占位变化或 dynamic-size 测量收敛。
+- 触发时机：首个或末个**真实可见**元素在成功 commit 后发生变化时；来源可以是滚动、resize、数据变更、`before` 占位变化或 dynamic-size 测量收敛。
 - 载荷类型：
 
 ```ts
@@ -226,6 +226,7 @@ const handleScrollPosition = (payload: ScrollPositionPayload) => {
 
 - 类型：`string | ((item: unknown, index: number) => string | number)`
 - 默认值：`'id'`
+- 说明：逻辑 item 的稳定 key。若列表里出现重复值，组件会在内部补 `_n` 后缀保证唯一，并在开发环境输出告警。
 
 #### `buffer`
 
@@ -272,14 +273,14 @@ const handleScrollPosition = (payload: ScrollPositionPayload) => {
 - 与 `RecycleScroller` 使用相同载荷结构。
 - 模板监听：`@scroll-end="handleScrollEnd"`
 - TSX 监听：`onScrollEnd={handleScrollEnd}`
-- dynamic-size 下，首屏估算结果和后续测量收敛都可能改变底部 reached 状态，因此会在状态切换时发出新事件。
+- dynamic-size 下，首屏估算结果和后续测量收敛都可能改变底部 reached 状态，因此会在成功 commit 后的状态切换时发出新事件。
 
 #### `scrollPosition`
 
 - 与 `RecycleScroller` 使用相同事件名和载荷结构。
 - 模板监听：`@scroll-position="handleScrollPosition"`
 - TSX 监听：`onScrollPosition={handleScrollPosition}`
-- dynamic-size 下，首屏估算窗口和后续测量收敛都可能触发新的边界事件，只要首尾可见项发生变化就会发出。
+- dynamic-size 下，首屏估算窗口和后续测量收敛都可能触发新的位置事件，只要首尾可见项在成功 commit 后发生变化就会发出。
 
 ### Slots
 
@@ -398,7 +399,7 @@ const handleScrollPosition = (payload: ScrollPositionPayload) => {
 - `RecycleScroller` 仍然是 fixed-height 模型；`itemSize <= 0` 会直接抛错。
 - `DynamicScroller` 只支持纵向列表；`minItemSize <= 0` 会直接抛错。
 - `pullToRefresh` 默认关闭；启用时必须提供 `onRefresh`，并且只能用于纵向模式。
-- fixed-height 场景下可见窗口内重复 key 会报错；dynamic-size 场景下重复 key 列表会报错。
+- `itemKey` 必须稳定；如果出现重复值，两个 scroller 都会在内部补 `_n` 后缀保证唯一，并在开发环境输出告警。
 - 单次渲染窗口超过 `1000` 项会报错，这通常表示滚动容器测量配置不正确。
 
 ## 构建产物

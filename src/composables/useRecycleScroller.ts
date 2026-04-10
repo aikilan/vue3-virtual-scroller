@@ -9,6 +9,7 @@ import {
 import type {
   FixedHeightRange,
   RecycleScrollerItemKey,
+  RecycleScrollerItemKeyValue,
   RecycleScrollerMeasurementState,
   RecycleScrollerView,
   RecycleScrollerUpdateReason,
@@ -19,7 +20,11 @@ import type {
 import {
   createRecycleScrollerUpdateScheduler,
 } from './recycle-scroller/controller'
-import { resolveRecycleScrollerItemKey } from './recycle-scroller/key'
+import {
+  resolveRecycleScrollerItemKey,
+  resolveRecycleScrollerItemKeys,
+  warnDuplicateRecycleScrollerItemKeys,
+} from './recycle-scroller/key'
 import {
   observeRecycleScrollerMeasurements,
   readRecycleScrollerMeasurement,
@@ -64,14 +69,6 @@ export {
   resolveWrapperStyle,
 }
 
-function detectDuplicateVisibleKeys(keys: Set<string | number>, key: string | number): void {
-  if (keys.has(key)) {
-    throw new Error(`RecycleScroller detected duplicate key "${String(key)}" in the visible window.`)
-  }
-
-  keys.add(key)
-}
-
 function isSameFixedHeightRange(
   previous: FixedHeightRange | null,
   next: FixedHeightRange,
@@ -105,15 +102,14 @@ export function useRecycleScroller(
   let stopObserving: () => void = () => undefined
   let mounted = false
   let currentRange: FixedHeightRange | null = null
+  let pendingDuplicateKeyWarning = true
 
   function readMeasurement(): RecycleScrollerMeasurementState {
-    measurement.value = readRecycleScrollerMeasurement(
+    return readRecycleScrollerMeasurement(
       containerRef.value,
       beforeRef.value,
       options.direction,
     )
-
-    return measurement.value
   }
 
   function buildVisibleEntries(
@@ -121,18 +117,16 @@ export function useRecycleScroller(
     endIndex: number,
     visibleStartIndex: number,
     visibleEndIndex: number,
+    effectiveKeys: RecycleScrollerItemKeyValue[],
   ) {
     const entries = []
-    const visibleKeys = new Set<string | number>()
 
     for (let index = startIndex; index < endIndex; index++) {
       const item = options.items[index]
-      const key = resolveRecycleScrollerItemKey(item, index, options.itemKey)
-      detectDuplicateVisibleKeys(visibleKeys, key)
       entries.push({
         item,
         index,
-        key,
+        key: effectiveKeys[index],
         active: index >= visibleStartIndex && index < visibleEndIndex,
         position: index * options.itemSize,
       })
@@ -145,6 +139,13 @@ export function useRecycleScroller(
     assertValidItemSize(options.itemSize)
 
     const nextMeasurement = readMeasurement()
+    const resolvedItemKeys = resolveRecycleScrollerItemKeys(options.items, options.itemKey)
+
+    if (pendingDuplicateKeyWarning) {
+      warnDuplicateRecycleScrollerItemKeys('RecycleScroller', resolvedItemKeys.duplicateCounts)
+      pendingDuplicateKeyWarning = false
+    }
+
     const range = resolveFixedHeightRange({
       count: options.items.length,
       itemSize: options.itemSize,
@@ -156,12 +157,13 @@ export function useRecycleScroller(
 
     assertRenderWindowWithinLimit(range.endIndex - range.startIndex)
 
-    totalSize.value = range.totalSize
-
     if (
       (reason === 'scroll' || reason === 'resize')
       && isSameFixedHeightRange(currentRange, range)
     ) {
+      measurement.value = nextMeasurement
+      totalSize.value = range.totalSize
+      currentRange = range
       if (!ready.value) {
         ready.value = true
       }
@@ -173,10 +175,13 @@ export function useRecycleScroller(
       range.endIndex,
       range.visibleStartIndex,
       range.visibleEndIndex,
+      resolvedItemKeys.effectiveKeys,
     )
     const recycledViewLimit = (range.endIndex - range.startIndex)
       + resolveViewportItemCapacity(nextMeasurement.viewportSize, options.itemSize)
 
+    measurement.value = nextMeasurement
+    totalSize.value = range.totalSize
     reuseStore.commitVisibleEntries({
       entries: visibleEntries,
       recycledViewLimit,
@@ -272,6 +277,7 @@ export function useRecycleScroller(
   watch(
     () => options.items,
     () => {
+      pendingDuplicateKeyWarning = true
       scheduleUpdate('items')
     },
   )
@@ -279,13 +285,22 @@ export function useRecycleScroller(
   watch(
     () => options.items.length,
     () => {
+      pendingDuplicateKeyWarning = true
       scheduleUpdate('items')
     },
   )
 
   watch(
-    () => [options.itemSize, options.buffer, options.direction, options.itemKey] as const,
+    () => [options.itemSize, options.buffer, options.direction] as const,
     () => {
+      scheduleUpdate('props')
+    },
+  )
+
+  watch(
+    () => options.itemKey,
+    () => {
+      pendingDuplicateKeyWarning = true
       scheduleUpdate('props')
     },
   )

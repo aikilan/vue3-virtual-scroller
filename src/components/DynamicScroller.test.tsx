@@ -436,6 +436,96 @@ describe('DynamicScroller', () => {
     })
   })
 
+  it('normalizes duplicate keys, warns once, and keeps duplicate measurements isolated', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const stories: Story[] = [
+      { id: 'same', lines: ['first'] },
+      { id: 'same', lines: ['second'] },
+      { id: 'same_1', lines: ['third'] },
+    ]
+    const wrapper = trackWrapper(mount(DynamicScroller, {
+      props: {
+        items: stories,
+        minItemSize: 50,
+        buffer: 0,
+      },
+      slots: {
+        default: ({ item, index, active }: DynamicScrollerDefaultSlotProps) =>
+          h(DynamicScrollerItem, {
+            item,
+            index,
+            active,
+            sizeDependencies: (item as Story).lines,
+          }, {
+            default: () => h('div', { class: 'story' }, `${(item as Story).id}|${index}`),
+          }),
+      },
+    }))
+
+    const { element } = await syncDynamicScroller(wrapper, {
+      clientHeight: 200,
+      scrollHeight: 150,
+      scrollTop: 0,
+    })
+
+    const itemElements = wrapper.findAll('.vue-dynamic-scroller-item')
+    setElementMetrics(element, { scrollHeight: 270 })
+    setElementMetrics(itemElements[0].element as HTMLElement, { offsetHeight: 80 })
+    setElementMetrics(itemElements[1].element as HTMLElement, { offsetHeight: 140 })
+    setElementMetrics(itemElements[2].element as HTMLElement, { offsetHeight: 50 })
+    ResizeObserverMock.triggerAll()
+    await flushAnimationFrame()
+
+    expect(wrapper.findAll('.story').map((item) => item.text())).toEqual([
+      'same|0',
+      'same|1',
+    ])
+    expect(wrapper.get('.vue-recycle-scroller__item-wrapper').attributes('style')).toContain('height: 270px;')
+    expect(warnSpy).toHaveBeenCalledTimes(1)
+    expect(warnSpy.mock.calls[0]?.[0]).toContain('DynamicScroller detected duplicate itemKey values')
+  })
+
+  it('suppresses derived events when a dynamic commit fails and resumes after recovery', async () => {
+    const wrapper = trackWrapper(mount(DynamicScroller, {
+      props: {
+        items: createStories(4),
+        minItemSize: 50,
+        buffer: 0,
+      },
+      slots: {
+        default: renderDynamicSlot,
+      },
+    }))
+
+    const { element, vm } = await syncDynamicScroller(wrapper, {
+      clientHeight: 100,
+      scrollHeight: 200,
+      scrollTop: 0,
+    })
+    const initialPositionPayloads = getScrollPositionPayloads(wrapper).length
+    const initialEndPayloads = getScrollBoundaryPayloads(wrapper, 'scrollEnd').length
+
+    element.scrollTop = 100
+    await wrapper.setProps({ minItemSize: 0 })
+
+    expect(() => {
+      vm.updateVisibleItems()
+    }).toThrow('positive minItemSize')
+    expect(getScrollPositionPayloads(wrapper)).toHaveLength(initialPositionPayloads)
+    expect(getScrollBoundaryPayloads(wrapper, 'scrollEnd')).toHaveLength(initialEndPayloads)
+
+    await wrapper.setProps({ minItemSize: 50 })
+    vm.updateVisibleItems()
+    await nextTick()
+
+    expect(getScrollPositionPayloads(wrapper)).toHaveLength(initialPositionPayloads + 1)
+    expect(getScrollBoundaryPayloads(wrapper, 'scrollEnd')).toHaveLength(initialEndPayloads + 1)
+    expect(getLastScrollBoundaryPayload(wrapper, 'scrollEnd')).toEqual({
+      reached: true,
+      scroll: { start: 100, end: 200 },
+    })
+  })
+
   it('rebuilds layout state after in-place logical reordering', async () => {
     const items = ref(createStories(3))
 

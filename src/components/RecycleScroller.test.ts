@@ -815,28 +815,100 @@ describe('RecycleScroller', () => {
     expect(wrapper.find('.empty-slot').exists()).toBe(true)
   })
 
-  it('rejects duplicate keys and oversized windows', async () => {
+  it('normalizes duplicate keys without breaking view reuse across windows', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
     const duplicateWrapper = trackWrapper(mount(RecycleScroller, {
       props: {
-        items: [{ id: 'same' }, { id: 'same' }],
+        items: [
+          { id: 'same', label: 'Item 0' },
+          { id: 'same', label: 'Item 1' },
+          { id: 'same_1', label: 'Item 2' },
+          { id: 'same', label: 'Item 3' },
+        ],
         itemSize: 30,
         buffer: 0,
       },
       slots: {
-        default: ({ index }: RowSlotProps) => h('div', { class: 'row' }, String(index)),
+        default: ({ item, index }: RowSlotProps) =>
+          h('div', { class: 'row' }, `${(item as { label: string }).label}|${index}`),
       },
     }))
 
-    await settleScroller()
+    const { element } = await syncScroller(duplicateWrapper, { clientHeight: 60, scrollTop: 0 })
 
-    const duplicateElement = duplicateWrapper.get('.vue-recycle-scroller').element as HTMLElement
-    setElementMetrics(duplicateElement, { clientHeight: 60, scrollTop: 0 })
+    expect(duplicateWrapper.findAll('.row').map((item) => item.text())).toEqual([
+      'Item 0|0',
+      'Item 1|1',
+    ])
+
+    element.scrollTop = 30
+    await duplicateWrapper.trigger('scroll')
+    await flushAnimationFrame()
+
+    expect(duplicateWrapper.findAll('.row').map((item) => item.text())).toEqual([
+      'Item 1|1',
+      'Item 2|2',
+    ])
+
+    element.scrollTop = 60
+    await duplicateWrapper.trigger('scroll')
+    await flushAnimationFrame()
+
+    expect(duplicateWrapper.findAll('.row').map((item) => item.text())).toEqual([
+      'Item 2|2',
+      'Item 3|3',
+    ])
+    expect(warnSpy).toHaveBeenCalledTimes(1)
+    expect(warnSpy.mock.calls[0]?.[0]).toContain('RecycleScroller detected duplicate itemKey values')
+    disposeWrapper(duplicateWrapper)
+  })
+
+  it('suppresses derived events when a commit fails and resumes after recovery', async () => {
+    let shouldThrow = false
+    const wrapper = trackWrapper(mount(RecycleScroller, {
+      props: {
+        items: createItems(4),
+        itemSize: 50,
+        buffer: 0,
+        itemKey: (item: unknown) => {
+          if (shouldThrow) {
+            throw new Error('key failure')
+          }
+          return (item as { id: string }).id
+        },
+      },
+      slots: {
+        default: ({ item, index }: RowSlotProps) =>
+          h('div', { class: 'row' }, `${(item as { label: string }).label}|${index}`),
+      },
+    }))
+
+    const { element, vm } = await syncScroller(wrapper, { clientHeight: 100, scrollTop: 0 })
+    const initialPositionPayloads = getScrollPositionPayloads(wrapper).length
+    const initialEndPayloads = getScrollBoundaryPayloads(wrapper, 'scrollEnd').length
+
+    shouldThrow = true
+    element.scrollTop = 100
 
     expect(() => {
-      (duplicateWrapper.vm as unknown as RecycleScrollerExpose).updateVisibleItems()
-    }).toThrow('duplicate key')
-    disposeWrapper(duplicateWrapper)
+      vm.updateVisibleItems()
+    }).toThrow('key failure')
+    expect(getScrollPositionPayloads(wrapper)).toHaveLength(initialPositionPayloads)
+    expect(getScrollBoundaryPayloads(wrapper, 'scrollEnd')).toHaveLength(initialEndPayloads)
 
+    shouldThrow = false
+    vm.updateVisibleItems()
+    await nextTick()
+
+    expect(getScrollPositionPayloads(wrapper)).toHaveLength(initialPositionPayloads + 1)
+    expect(getScrollBoundaryPayloads(wrapper, 'scrollEnd')).toHaveLength(initialEndPayloads + 1)
+    expect(getLastScrollBoundaryPayload(wrapper, 'scrollEnd')).toEqual({
+      reached: true,
+      scroll: { start: 100, end: 200 },
+    })
+  })
+
+  it('rejects oversized windows', async () => {
     const limitWrapper = trackWrapper(mount(RecycleScroller, {
       props: {
         items: createItems(1501),

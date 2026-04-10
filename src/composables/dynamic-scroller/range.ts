@@ -4,7 +4,7 @@ import type {
   RecycleScrollerItemKeyValue,
 } from '../../types/recycle-scroller'
 
-import { resolveRecycleScrollerItemKey } from '../recycle-scroller/key'
+import { resolveRecycleScrollerItemKeys } from '../recycle-scroller/key'
 import { clamp } from '../recycle-scroller/range'
 
 export interface DynamicSizeLayout {
@@ -187,32 +187,6 @@ function upperBoundFenwickTree(tree: FenwickTree, target: number): number {
   return Math.min(tree.size, index + 1)
 }
 
-function resolveDynamicSizeLayoutKeys(
-  items: unknown[],
-  itemKey: RecycleScrollerItemKey,
-): {
-  indexByKey: Map<RecycleScrollerItemKeyValue, number>
-  keys: RecycleScrollerItemKeyValue[]
-} {
-  const keys: RecycleScrollerItemKeyValue[] = []
-  const indexByKey = new Map<RecycleScrollerItemKeyValue, number>()
-
-  for (let index = 0; index < items.length; index++) {
-    const key = resolveRecycleScrollerItemKey(items[index], index, itemKey)
-    if (indexByKey.has(key)) {
-      throw new Error(`DynamicScroller detected duplicate key "${String(key)}" in the items list.`)
-    }
-
-    keys.push(key)
-    indexByKey.set(key, index)
-  }
-
-  return {
-    indexByKey,
-    keys,
-  }
-}
-
 function pruneDynamicSizeMeasurements(
   keys: RecycleScrollerItemKeyValue[],
   sizeMap: Map<RecycleScrollerItemKeyValue, number>,
@@ -263,14 +237,14 @@ export function syncDynamicSizeLayoutCache(
   const { items, itemKey, minItemSize, sizeMap } = input
   assertValidMinItemSize(minItemSize)
 
-  const { indexByKey, keys } = resolveDynamicSizeLayoutKeys(items, itemKey)
+  const { effectiveKeys, indexByKey } = resolveRecycleScrollerItemKeys(items, itemKey)
 
-  pruneDynamicSizeMeasurements(keys, sizeMap)
+  pruneDynamicSizeMeasurements(effectiveKeys, sizeMap)
 
-  cache.keys = keys
+  cache.keys = effectiveKeys
   cache.indexByKey = indexByKey
   cache.minItemSize = minItemSize
-  cache.sizes = keys.map((key) => sizeMap.get(key) ?? minItemSize)
+  cache.sizes = effectiveKeys.map((key) => sizeMap.get(key) ?? minItemSize)
   cache.firstMeasurementChangeIndex = null
   buildFenwickTree(cache.fenwickTree, cache.sizes)
   cache.totalSize = resolveFenwickTreePrefixSum(cache.fenwickTree, cache.sizes.length)
