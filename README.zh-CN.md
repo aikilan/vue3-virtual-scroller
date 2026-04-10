@@ -27,7 +27,7 @@ pnpm dev
 
 - `dist/index.js`：ESM 入口
 - `dist/index.cjs`：CommonJS 入口
-- `dist/index.d.ts`：类型声明入口
+- `dist/index.d.ts`：单文件类型声明入口
 - `dist/style.css`：组件样式入口
 
 `pnpm build` 会先构建库产物，再构建示例站点到 `demo-dist`。
@@ -43,8 +43,8 @@ import {
   RecycleScroller,
   type ScrollBoundaryPayload,
   type ScrollPositionPayload,
-} from 'vue3-virtual-scroller'
-import 'vue3-virtual-scroller/style.css'
+} from 'vue-virtual-scroller-next'
+import 'vue-virtual-scroller-next/style.css'
 
 const items = Array.from({ length: 1000 }, (_, index) => ({
   id: `row-${index}`,

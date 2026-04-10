@@ -9,8 +9,8 @@ import {
   RecycleScroller,
   type ScrollBoundaryPayload,
   type ScrollPositionPayload,
-} from 'vue3-virtual-scroller'
-import 'vue3-virtual-scroller/style.css'
+} from 'vue-virtual-scroller-next'
+import 'vue-virtual-scroller-next/style.css'
 ```
 
 如果你需要直接复用内部逻辑，也可以从包入口导入：
@@ -27,7 +27,7 @@ import {
   resolveWrapperStyle,
   useDynamicScroller,
   useRecycleScroller,
-} from 'vue3-virtual-scroller'
+} from 'vue-virtual-scroller-next'
 ```
 
 ## RecycleScroller
@@ -407,7 +407,7 @@ const handleScrollPosition = (payload: ScrollPositionPayload) => {
 
 - `dist/index.js`
 - `dist/index.cjs`
-- `dist/index.d.ts`
+- `dist/index.d.ts`（单文件类型声明入口）
 - `dist/style.css`
 
 执行 `pnpm build` 时，示例站点会额外输出到 `demo-dist`，不会混进库发布目录。

@@ -27,7 +27,7 @@ pnpm dev
 
 - `dist/index.js`: ESM entry
 - `dist/index.cjs`: CommonJS entry
-- `dist/index.d.ts`: type declarations
+- `dist/index.d.ts`: bundled type declarations
 - `dist/style.css`: component styles
 
 `pnpm build` builds the library first and then the demo site into `demo-dist`.
@@ -43,8 +43,8 @@ import {
   RecycleScroller,
   type ScrollBoundaryPayload,
   type ScrollPositionPayload,
-} from 'vue3-virtual-scroller'
-import 'vue3-virtual-scroller/style.css'
+} from 'vue-virtual-scroller-next'
+import 'vue-virtual-scroller-next/style.css'
 
 const items = Array.from({ length: 1000 }, (_, index) => ({
   id: `row-${index}`,
