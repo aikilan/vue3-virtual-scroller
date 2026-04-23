@@ -234,6 +234,26 @@ describe('DynamicScroller', () => {
     expect(element.scrollTop).toBe(300)
   })
 
+  it('renders the empty slot outside the zero-height item wrapper', async () => {
+    const wrapper = trackWrapper(mount(DynamicScroller, {
+      props: {
+        items: [],
+        minItemSize: 60,
+      },
+      slots: {
+        empty: () => h('div', { class: 'empty-slot' }, 'empty'),
+      },
+    }))
+
+    await syncDynamicScroller(wrapper, { clientHeight: 120, scrollTop: 0 })
+
+    const itemWrapper = wrapper.get('.vue-recycle-scroller__item-wrapper')
+    const emptySlot = wrapper.get('.empty-slot')
+    expect(itemWrapper.attributes('style')).toContain('height: 0px;')
+    expect(itemWrapper.element.contains(emptySlot.element)).toBe(false)
+    expect(wrapper.find('.empty-slot').exists()).toBe(true)
+  })
+
   it('refreshes the estimated window after small boundary-crossing scroll deltas', async () => {
     const wrapper = trackWrapper(mount(DynamicScroller, {
       props: {

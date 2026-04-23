@@ -812,6 +812,10 @@ describe('RecycleScroller', () => {
 
     await syncScroller(wrapper, { clientHeight: 90, scrollTop: 0 })
 
+    const itemWrapper = wrapper.get('.vue-recycle-scroller__item-wrapper')
+    const emptySlot = wrapper.get('.empty-slot')
+    expect(itemWrapper.attributes('style')).toContain('height: 0px;')
+    expect(itemWrapper.element.contains(emptySlot.element)).toBe(false)
     expect(wrapper.find('.empty-slot').exists()).toBe(true)
   })
 

@@ -329,8 +329,8 @@ const DynamicScroller = defineComponent({
           ) : null}
           <div class="vue-recycle-scroller__item-wrapper" style={wrapperStyle.value}>
             {itemViews}
-            {props.items.length === 0 ? slots.empty?.() : null}
           </div>
+          {props.items.length === 0 ? slots.empty?.() : null}
           {slots.after ? (
             <div class="vue-recycle-scroller__slot">{slots.after()}</div>
           ) : null}
